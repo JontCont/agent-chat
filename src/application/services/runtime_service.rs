@@ -70,6 +70,7 @@ impl RuntimeService {
             info!("Starting prompt execution loop for session: {}", session_id_str);
             let mut stream = gateway.send_message(&session_id_str, &user_msg.content);
             let mut full_response = String::new();
+            let mut current_event = String::new();
 
             while let Some(res) = stream.next().await {
                 match res {
@@ -78,17 +79,15 @@ impl RuntimeService {
                         ws_notifier.notify(&session_id_str, line.clone()).await;
 
                         // Parse output to build final full_response message
-                        if line.starts_with("data: ") {
+                        if line.starts_with("event: ") {
+                            current_event = line["event: ".len()..].trim().to_string();
+                        } else if line.starts_with("data: ") {
                             let data_part = &line["data: ".len()..];
                             if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(data_part) {
-                                // If done event, we grab the final accumulated text from it
-                                if line.contains("event: done") {
-                                    if let Some(text) = json_val.get("text").and_then(|t| t.as_str()) {
+                                if let Some(text) = json_val.get("text").and_then(|t| t.as_str()) {
+                                    if current_event == "done" {
                                         full_response = text.to_string();
-                                    }
-                                } else if line.contains("event: delta") {
-                                    // Fallback to appending if delta
-                                    if let Some(text) = json_val.get("text").and_then(|t| t.as_str()) {
+                                    } else if current_event == "delta" {
                                         full_response.push_str(text);
                                     }
                                 }

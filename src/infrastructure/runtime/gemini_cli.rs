@@ -38,7 +38,7 @@ async fn handle_messages(
                 Ok(line) => {
                     accumulated.push_str(&line);
                     accumulated.push('\n');
-                    let event_data = serde_json::json!({ "text": line }).to_string();
+                    let event_data = serde_json::json!({ "text": format!("{}\n", line) }).to_string();
                     if sse_tx.send(Ok::<_, Infallible>(Event::default().event("delta").data(event_data))).await.is_err() {
                         break;
                     }

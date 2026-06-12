@@ -56,17 +56,16 @@ impl RuntimeGateway for DaemonClient {
                     }
                 };
 
-                if let Ok(text) = std::str::from_utf8(&chunk) {
-                    buffer.push_str(text);
-                    
-                    while let Some(line_end) = buffer.find('\n') {
-                        let line = buffer[..line_end].trim_end().to_string();
-                        buffer = buffer[line_end + 1..].to_string();
+                let text = String::from_utf8_lossy(&chunk);
+                buffer.push_str(&text);
+                
+                while let Some(line_end) = buffer.find('\n') {
+                    let line = buffer[..line_end].trim_end().to_string();
+                    buffer = buffer[line_end + 1..].to_string();
 
-                        if !line.is_empty() {
-                            if tx.send(Ok(line)).await.is_err() {
-                                break;
-                            }
+                    if !line.is_empty() {
+                        if tx.send(Ok(line)).await.is_err() {
+                            break;
                         }
                     }
                 }
