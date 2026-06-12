@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Chat Interface</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Sidebar or Header Panel -->
+        <header class="chat-header">
+            <div class="header-info">
+                <h1>Gemini Agent Bridge</h1>
+                <p>Decoupled Host Execution & Real-time SSE/WS Streaming</p>
+            </div>
+            <div class="status-indicator">
+                <span class="status-dot" id="status-dot"></span>
+                <span class="status-text" id="status-text">Connecting...</span>
+            </div>
+        </header>
+
+        <!-- Messages Display Panel -->
+        <main class="chat-messages" id="chat-messages">
+            <div class="message system-message">
+                <div class="message-content">
+                    <p>Welcome! System is initializing a new session...</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Input Control Panel -->
+        <footer class="chat-footer">
+            <div class="input-container">
+                <textarea id="prompt-input" placeholder="Type your prompt here..." rows="1" disabled></textarea>
+                <div class="actions">
+                    <button class="btn btn-cancel" id="btn-cancel" disabled>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>
+                        </svg>
+                        Cancel
+                    </button>
+                    <button class="btn btn-send" id="btn-send" disabled>
+                        Send
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>

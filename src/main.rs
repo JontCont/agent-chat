@@ -15,7 +15,7 @@ use crate::api::AppState;
 
 use std::sync::Arc;
 use axum::{Router, routing::get};
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -84,6 +84,7 @@ async fn main() {
         .route("/health", get(|| async { "OK" }))
         .nest("/sessions", crate::api::routes::sessions::router())
         .nest("/ws", crate::api::routes::websocket::router())
+        .fallback_service(ServeDir::new("src/frontend"))
         .with_state(state)
         .layer(CorsLayer::permissive());
 
