@@ -409,7 +409,8 @@
                 if (response.status === 202) {
                     log("[系統] API 已接受請求 (202 Accepted)，正在等待 Daemon 啟動執行檔串流...");
                 } else {
-                    log(`[系統] API 回應狀態碼: ${response.status}`);
+                    const errorMsg = await response.text();
+                    log(`[系統] API 回應狀態碼: ${response.status} - 錯誤訊息: ${errorMsg}`, 'stream-error');
                 }
             } catch (err) {
                 log(`[錯誤] 發送失敗: ${err.message}`, 'stream-error');
