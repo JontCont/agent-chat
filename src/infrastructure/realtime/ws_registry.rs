@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::info;
+use std::future::Future;
+use std::pin::Pin;
 
 #[derive(Clone)]
 pub struct WebSocketRegistry {
@@ -30,14 +32,14 @@ impl WebSocketRegistry {
 }
 
 impl WsNotifier for WebSocketRegistry {
-    fn notify(&self, session_id: &str, event_json: String) -> impl std::future::Future<Output = ()> + Send {
+    fn notify(&self, session_id: &str, event_json: String) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let senders = self.senders.clone();
         let session_id = session_id.to_string();
-        async move {
+        Box::pin(async move {
             let senders_read = senders.read().await;
             if let Some(tx) = senders_read.get(&session_id) {
                 let _ = tx.send(event_json);
             }
-        }
+        })
     }
 }

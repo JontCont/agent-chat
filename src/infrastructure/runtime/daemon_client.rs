@@ -3,6 +3,7 @@ use reqwest::Client;
 use futures_util::{Stream, StreamExt};
 use std::io;
 use std::future::Future;
+use std::pin::Pin;
 use tracing::{info, error};
 
 pub struct DaemonClient {
@@ -20,7 +21,7 @@ impl DaemonClient {
 }
 
 impl RuntimeGateway for DaemonClient {
-    fn send_message(&self, session_id: &str, content: &str) -> impl Stream<Item = Result<String, io::Error>> + Send {
+    fn send_message(&self, session_id: &str, content: &str) -> Pin<Box<dyn Stream<Item = Result<String, io::Error>> + Send>> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let url = format!("{}/local/sessions/{}/messages", self.daemon_url, session_id);
         let client = self.client.clone();
@@ -72,13 +73,13 @@ impl RuntimeGateway for DaemonClient {
             }
         });
 
-        tokio_stream::wrappers::ReceiverStream::new(rx)
+        Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))
     }
 
-    fn cancel_run(&self, session_id: &str) -> impl Future<Output = Result<(), io::Error>> + Send {
+    fn cancel_run(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
         let url = format!("{}/local/sessions/{}/cancel", self.daemon_url, session_id);
         let client = self.client.clone();
-        async move {
+        Box::pin(async move {
             info!("Sending cancel request to Daemon at: {}", url);
             let res = client.post(&url).send().await;
             match res {
@@ -92,13 +93,13 @@ impl RuntimeGateway for DaemonClient {
                     Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
                 }
             }
-        }
+        })
     }
 
-    fn delete_session(&self, session_id: &str) -> impl Future<Output = Result<(), io::Error>> + Send {
+    fn delete_session(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
         let url = format!("{}/local/sessions/{}", self.daemon_url, session_id);
         let client = self.client.clone();
-        async move {
+        Box::pin(async move {
             info!("Sending DELETE request to Daemon at: {}", url);
             let res = client.delete(&url).send().await;
             match res {
@@ -112,6 +113,6 @@ impl RuntimeGateway for DaemonClient {
                     Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
                 }
             }
-        }
+        })
     }
 }

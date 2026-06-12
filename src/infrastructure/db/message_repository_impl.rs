@@ -2,6 +2,7 @@ use crate::application::models::message::Message;
 use crate::application::ports::message_repository::MessageRepository;
 use sqlx::{SqlitePool, Row};
 use std::future::Future;
+use std::pin::Pin;
 
 #[derive(Clone)]
 pub struct SqliteMessageRepository {
@@ -15,10 +16,10 @@ impl SqliteMessageRepository {
 }
 
 impl MessageRepository for SqliteMessageRepository {
-    fn save(&self, message: &Message) -> impl Future<Output = Result<(), sqlx::Error>> + Send {
+    fn save(&self, message: &Message) -> Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send>> {
         let pool = self.pool.clone();
         let message = message.clone();
-        async move {
+        Box::pin(async move {
             sqlx::query(
                 "INSERT INTO messages (id, session_id, role, content, created_at, is_final) 
                  VALUES (?, ?, ?, ?, ?, ?)"
@@ -32,13 +33,13 @@ impl MessageRepository for SqliteMessageRepository {
             .execute(&pool)
             .await?;
             Ok(())
-        }
+        })
     }
 
-    fn get_by_session(&self, session_id: &str) -> impl Future<Output = Result<Vec<Message>, sqlx::Error>> + Send {
+    fn get_by_session(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<Vec<Message>, sqlx::Error>> + Send>> {
         let pool = self.pool.clone();
         let session_id = session_id.to_string();
-        async move {
+        Box::pin(async move {
             let rows = sqlx::query(
                 "SELECT id, session_id, role, content, created_at, is_final 
                  FROM messages WHERE session_id = ? ORDER BY created_at ASC"
@@ -71,6 +72,6 @@ impl MessageRepository for SqliteMessageRepository {
             }
 
             Ok(messages)
-        }
+        })
     }
 }

@@ -65,7 +65,6 @@ pub async fn terminate_process_tree(pid: u32) -> std::io::Result<()> {
 
 pub fn spawn_run(session_id: String, prompt: String) -> impl Stream<Item = Result<String, std::io::Error>> + Send {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
-    let session_id_clone = session_id.clone();
     
     tokio::spawn(async move {
         let gemini_cmd = std::env::var("GEMINI_CLI_PATH").unwrap_or_else(|_| "gemini".to_string());
@@ -90,9 +89,10 @@ pub fn spawn_run(session_id: String, prompt: String) -> impl Stream<Item = Resul
                 let mut stderr_reader = BufReader::new(stderr).lines();
 
                 // Monitor stderr in background
+                let session_id_err = session_id.clone();
                 tokio::spawn(async move {
                     while let Ok(Some(line)) = stderr_reader.next_line().await {
-                        error!("Gemini CLI stderr (session {}): {}", session_id, line);
+                        error!("Gemini CLI stderr (session {}): {}", session_id_err, line);
                     }
                 });
 

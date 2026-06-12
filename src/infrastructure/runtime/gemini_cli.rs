@@ -60,7 +60,7 @@ async fn handle_messages(
     Sse::new(sse_stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
-async fn handle_cancel(Path(id): Path<String>) -> Result<impl axum::response::IntoResponse, (StatusCode, String)> {
+async fn handle_cancel(Path(id): Path<String>) -> Result<axum::response::Response, (StatusCode, String)> {
     info!("Daemon handling cancel for session {}", id);
     if let Some(pid) = crate::infrastructure::runtime::process_manager::get_pid(&id) {
         if let Err(e) = crate::infrastructure::runtime::process_manager::terminate_process_tree(pid).await {
@@ -68,9 +68,9 @@ async fn handle_cancel(Path(id): Path<String>) -> Result<impl axum::response::In
             return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to kill process: {:?}", e)));
         }
         crate::infrastructure::runtime::process_manager::delete_pid(&id);
-        Ok(StatusCode::OK)
+        Ok(axum::response::IntoResponse::into_response(StatusCode::OK))
     } else {
-        Ok((StatusCode::NOT_FOUND, "No active process found for session".to_string()))
+        Ok(axum::response::IntoResponse::into_response((StatusCode::NOT_FOUND, "No active process found for session".to_string())))
     }
 }
 

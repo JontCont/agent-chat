@@ -2,6 +2,7 @@ use crate::application::models::session::{Session, SessionStatus};
 use crate::application::ports::session_repository::SessionRepository;
 use sqlx::{SqlitePool, Row};
 use std::future::Future;
+use std::pin::Pin;
 
 #[derive(Clone)]
 pub struct SqliteSessionRepository {
@@ -15,10 +16,10 @@ impl SqliteSessionRepository {
 }
 
 impl SessionRepository for SqliteSessionRepository {
-    fn create(&self, session: &Session) -> impl Future<Output = Result<(), sqlx::Error>> + Send {
+    fn create(&self, session: &Session) -> Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send>> {
         let pool = self.pool.clone();
         let session = session.clone();
-        async move {
+        Box::pin(async move {
             sqlx::query(
                 "INSERT INTO sessions (id, status, created_at, last_seen_at, expires_at, disconnected_at, runtime_id) 
                  VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -33,27 +34,27 @@ impl SessionRepository for SqliteSessionRepository {
             .execute(&pool)
             .await?;
             Ok(())
-        }
+        })
     }
 
-    fn update_status(&self, id: &str, status: &str) -> impl Future<Output = Result<(), sqlx::Error>> + Send {
+    fn update_status(&self, id: &str, status: &str) -> Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send>> {
         let pool = self.pool.clone();
         let id = id.to_string();
         let status = status.to_string();
-        async move {
+        Box::pin(async move {
             sqlx::query("UPDATE sessions SET status = ? WHERE id = ?")
                 .bind(status)
                 .bind(id)
                 .execute(&pool)
                 .await?;
             Ok(())
-        }
+        })
     }
 
-    fn update_expiry(&self, id: &str, last_seen_at: chrono::DateTime<chrono::Utc>, expires_at: chrono::DateTime<chrono::Utc>) -> impl Future<Output = Result<(), sqlx::Error>> + Send {
+    fn update_expiry(&self, id: &str, last_seen_at: chrono::DateTime<chrono::Utc>, expires_at: chrono::DateTime<chrono::Utc>) -> Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send>> {
         let pool = self.pool.clone();
         let id = id.to_string();
-        async move {
+        Box::pin(async move {
             sqlx::query("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?")
                 .bind(last_seen_at.to_rfc3339())
                 .bind(expires_at.to_rfc3339())
@@ -61,13 +62,13 @@ impl SessionRepository for SqliteSessionRepository {
                 .execute(&pool)
                 .await?;
             Ok(())
-        }
+        })
     }
 
-    fn get_by_id(&self, id: &str) -> impl Future<Output = Result<Option<Session>, sqlx::Error>> + Send {
+    fn get_by_id(&self, id: &str) -> Pin<Box<dyn Future<Output = Result<Option<Session>, sqlx::Error>> + Send>> {
         let pool = self.pool.clone();
         let id = id.to_string();
-        async move {
+        Box::pin(async move {
             let row = sqlx::query(
                 "SELECT id, status, created_at, last_seen_at, expires_at, disconnected_at, runtime_id 
                  FROM sessions WHERE id = ?"
@@ -112,12 +113,12 @@ impl SessionRepository for SqliteSessionRepository {
             } else {
                 Ok(None)
             }
-        }
+        })
     }
 
-    fn get_expired(&self) -> impl Future<Output = Result<Vec<Session>, sqlx::Error>> + Send {
+    fn get_expired(&self) -> Pin<Box<dyn Future<Output = Result<Vec<Session>, sqlx::Error>> + Send>> {
         let pool = self.pool.clone();
-        async move {
+        Box::pin(async move {
             let now = chrono::Utc::now().to_rfc3339();
             let rows = sqlx::query(
                 "SELECT id, status, created_at, last_seen_at, expires_at, disconnected_at, runtime_id 
@@ -165,6 +166,6 @@ impl SessionRepository for SqliteSessionRepository {
             }
 
             Ok(sessions)
-        }
+        })
     }
 }

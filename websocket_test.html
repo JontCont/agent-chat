@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Bridge 串流測試控制台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(20, 30, 55, 0.6);
+            --primary: #5856d6;
+            --primary-glow: rgba(88, 86, 214, 0.4);
+            --accent: #00d2ff;
+            --accent-glow: rgba(0, 210, 255, 0.3);
+            --success: #34c759;
+            --error: #ff3b30;
+            --text-main: #f5f7fa;
+            --text-muted: #8e9bb0;
+            --border: rgba(255, 255, 255, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(88, 86, 214, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 210, 255, 0.12) 0%, transparent 40%);
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        header {
+            margin-bottom: 25px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #fff 30%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        input[type="text"], textarea {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        button {
+            cursor: pointer;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, #7d5cff 100%);
+            color: white;
+            box-shadow: 0 4px 15px var(--primary-glow);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(88, 86, 214, 0.6);
+        }
+
+        .btn-accent {
+            background: linear-gradient(135deg, #00b4db 0%, #0083b0 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 180, 219, 0.3);
+        }
+
+        .btn-accent:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 180, 219, 0.5);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--error) 0%, #cc2b23 100%);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 59, 48, 0.4);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-disconnected {
+            background: rgba(255, 59, 48, 0.15);
+            color: var(--error);
+            border: 1px solid rgba(255, 59, 48, 0.3);
+        }
+
+        .badge-connected {
+            background: rgba(52, 199, 89, 0.15);
+            color: var(--success);
+            border: 1px solid rgba(52, 199, 89, 0.3);
+        }
+
+        .terminal {
+            background: #05070c;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            height: 250px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: #d1d8e0;
+            box-shadow: inset 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        .terminal-line {
+            margin-bottom: 6px;
+            word-break: break-all;
+        }
+
+        .sys-log {
+            color: #576574;
+        }
+
+        .stream-delta {
+            color: #00d2ff;
+        }
+
+        .stream-done {
+            color: #34c759;
+            font-weight: bold;
+            margin-top: 10px;
+            border-top: 1px dashed rgba(255,255,255,0.1);
+            padding-top: 10px;
+        }
+
+        .stream-error {
+            color: var(--error);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Agent Bridge 串流測試控制台</h1>
+            <p class="subtitle">視覺化測試 WebSocket 雙向轉發與主機進程取消</p>
+        </header>
+
+        <!-- 第一步：建立 Session & WebSocket -->
+        <div class="section">
+            <div class="section-title">
+                <span>1. 通訊控制 (Session)</span>
+                <span id="conn-status" class="badge badge-disconnected">未連線</span>
+            </div>
+            <div class="input-group">
+                <input type="text" id="session-id-input" placeholder="請建立 Session 或貼上已有的 UUID">
+                <button class="btn-primary" id="btn-create-session">建立新 Session</button>
+            </div>
+            <div class="input-group">
+                <button style="width: 100%;" class="btn-accent" id="btn-toggle-ws" disabled>連接 WebSocket 串流</button>
+            </div>
+        </div>
+
+        <!-- 第二步：發送訊息與取消 -->
+        <div class="section">
+            <div class="section-title">2. 發送 Prompt 訊息</div>
+            <textarea id="prompt-input" placeholder="輸入要測試的 Prompt，例如：請生成一個隨機程式碼故事" disabled></textarea>
+            <div class="input-group" style="margin-top: 12px;">
+                <button class="btn-primary" id="btn-send" style="flex: 2;" disabled>送出 Prompt</button>
+                <button class="btn-danger" id="btn-cancel" style="flex: 1;" disabled>立即取消</button>
+            </div>
+        </div>
+
+        <!-- 串流輸出終端機 -->
+        <div class="section" style="margin-bottom: 0;">
+            <div class="section-title">3. WebSocket 即時串流輸出</div>
+            <div class="terminal" id="terminal-screen">
+                <div class="terminal-line sys-log">[系統] 等待連線中... 請先點選「建立新 Session」並「連接 WebSocket 串流」。</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "http://localhost:8080";
+        const WS_BASE = "ws://localhost:8080/ws";
+
+        const btnCreateSession = document.getElementById('btn-create-session');
+        const btnToggleWs = document.getElementById('btn-toggle-ws');
+        const btnSend = document.getElementById('btn-send');
+        const btnCancel = document.getElementById('btn-cancel');
+        const sessionIdInput = document.getElementById('session-id-input');
+        const promptInput = document.getElementById('prompt-input');
+        const terminalScreen = document.getElementById('terminal-screen');
+        const connStatus = document.getElementById('conn-status');
+
+        let ws = null;
+
+        function log(text, type = 'sys-log') {
+            const line = document.createElement('div');
+            line.className = `terminal-line ${type}`;
+            line.innerText = text;
+            terminalScreen.appendChild(line);
+            terminalScreen.scrollTop = terminalScreen.scrollHeight;
+        }
+
+        // 1. 建立新 Session
+        btnCreateSession.addEventListener('click', async () => {
+            try {
+                btnCreateSession.disabled = true;
+                log("[系統] 正在請求建立 Session...");
+                const response = await fetch(`${API_BASE}/sessions`, { method: 'POST' });
+                if (!response.ok) throw new Error("HTTP 錯誤 " + response.status);
+                const data = await response.json();
+                
+                sessionIdInput.value = data.id;
+                log(`[系統] 成功建立 Session! ID: ${data.id}`, 'stream-done');
+                btnToggleWs.disabled = false;
+            } catch (err) {
+                log(`[錯誤] 建立 Session 失敗: ${err.message}`, 'stream-error');
+            } finally {
+                btnCreateSession.disabled = false;
+            }
+        });
+
+        // 監聽手動輸入 UUID
+        sessionIdInput.addEventListener('input', () => {
+            btnToggleWs.disabled = !sessionIdInput.value.trim();
+        });
+
+        // 2. 開關 WebSocket 連線
+        btnToggleWs.addEventListener('click', () => {
+            const sessionId = sessionIdInput.value.trim();
+            if (!sessionId) return;
+
+            if (ws) {
+                log("[系統] 手動斷開連線...");
+                ws.close();
+                return;
+            }
+
+            log(`[系統] 正在連線至 WebSocket ws://localhost:8080/ws/${sessionId}...`);
+            ws = new WebSocket(`${WS_BASE}/${sessionId}`);
+
+            ws.onopen = () => {
+                log("[系統] WebSocket 連線已建立！現在您可以發送 Prompt 訊息了。", 'stream-done');
+                connStatus.className = "badge badge-connected";
+                connStatus.innerText = "已連線";
+                btnToggleWs.innerText = "斷開 WebSocket";
+                btnToggleWs.className = "btn-danger";
+                promptInput.disabled = false;
+                btnSend.disabled = false;
+                btnCancel.disabled = false;
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "delta" || (data.event === "delta" && data.text)) {
+                        // 處理 SSE 包裝在 WS 的格式
+                        log(`[串流片段] ${data.text || data.data}`, 'stream-delta');
+                    } else if (data.event === "done" || data.type === "done") {
+                        log(`\n[完成] 串流結束。最終回應為：\n${data.text}`, 'stream-done');
+                    } else if (data.event === "error" || data.type === "error") {
+                        log(`[異常] ${data.error || data.text}`, 'stream-error');
+                    } else {
+                        // 通用輸出
+                        log(`[接收事件] ${event.data}`, 'stream-delta');
+                    }
+                } catch (e) {
+                    log(`[WS 訊息] ${event.data}`);
+                }
+            };
+
+            ws.onclose = () => {
+                log("[系統] WebSocket 連線已關閉。");
+                connStatus.className = "badge badge-disconnected";
+                connStatus.innerText = "已連線";
+                btnToggleWs.innerText = "連接 WebSocket 串流";
+                btnToggleWs.className = "btn-accent";
+                promptInput.disabled = true;
+                btnSend.disabled = true;
+                btnCancel.disabled = true;
+                ws = null;
+            };
+
+            ws.onerror = (err) => {
+                log(`[錯誤] WebSocket 發生異常。`, 'stream-error');
+            };
+        });
+
+        // 3. 發送 Prompt 訊息
+        btnSend.addEventListener('click', async () => {
+            const sessionId = sessionIdInput.value.trim();
+            const prompt = promptInput.value.trim();
+            if (!sessionId || !prompt) return;
+
+            try {
+                btnSend.disabled = true;
+                log(`[發送] 傳送 Prompt: "${prompt}"`);
+                
+                const response = await fetch(`${API_BASE}/sessions/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: prompt })
+                });
+
+                if (response.status === 202) {
+                    log("[系統] API 已接受請求 (202 Accepted)，正在等待 Daemon 啟動執行檔串流...");
+                } else {
+                    log(`[系統] API 回應狀態碼: ${response.status}`);
+                }
+            } catch (err) {
+                log(`[錯誤] 發送失敗: ${err.message}`, 'stream-error');
+            } finally {
+                btnSend.disabled = false;
+            }
+        });
+
+        // 4. 取消執行
+        btnCancel.addEventListener('click', async () => {
+            const sessionId = sessionIdInput.value.trim();
+            if (!sessionId) return;
+
+            try {
+                log("[發送] 正在請求取消當前執行...");
+                const response = await fetch(`${API_BASE}/sessions/${sessionId}/cancel`, { method: 'POST' });
+                if (response.ok) {
+                    log("[系統] 取消成功！進程已被刪除。", 'stream-done');
+                } else {
+                    log(`[系統] 取消失敗，狀態碼: ${response.status}`, 'stream-error');
+                }
+            } catch (err) {
+                log(`[錯誤] 請求取消發生異常: ${err.message}`, 'stream-error');
+            }
+        });
+    </script>
+</body>
+</html>

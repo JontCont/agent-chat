@@ -8,7 +8,8 @@ use axum::{
 use crate::api::AppState;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{info, error};
+use tracing::info;
+use futures_util::{StreamExt, SinkExt};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/:id", get(ws_handler))
@@ -37,7 +38,7 @@ async fn ws_handler(
     }
 }
 
-async fn handle_socket(mut socket: WebSocket, session_id: String, state: Arc<AppState>) {
+async fn handle_socket(socket: WebSocket, session_id: String, state: Arc<AppState>) {
     info!("WebSocket upgrade request accepted for session: {}", session_id);
     let (tx, mut rx) = mpsc::unbounded_channel();
     
@@ -48,9 +49,11 @@ async fn handle_socket(mut socket: WebSocket, session_id: String, state: Arc<App
     let session_id_clone = session_id.clone();
     let ws_registry_clone = state.ws_registry.clone();
     
+    let (mut sender, mut receiver) = socket.split();
+
     let mut send_task = tokio::spawn(async move {
         while let Some(msg_str) = rx.recv().await {
-            if socket.send(Message::Text(msg_str)).await.is_err() {
+            if sender.send(Message::Text(msg_str)).await.is_err() {
                 break;
             }
         }
@@ -58,7 +61,7 @@ async fn handle_socket(mut socket: WebSocket, session_id: String, state: Arc<App
 
     // Receive loop: keep socket open by receiving (and discarding client inputs)
     let mut recv_task = tokio::spawn(async move {
-        while let Some(Ok(_)) = socket.recv().await {
+        while let Some(Ok(_)) = receiver.next().await {
             // Discard client incoming frames (as WS is outbound-only streaming in this phase)
         }
     });
