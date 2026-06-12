@@ -84,6 +84,7 @@ async fn main() {
         .route("/health", get(|| async { "OK" }))
         .nest("/sessions", crate::api::routes::sessions::router())
         .nest("/ws", crate::api::routes::websocket::router())
+        .nest_service("/template", ServeDir::new("template"))
         .fallback_service(ServeDir::new("src/frontend"))
         .with_state(state)
         .layer(CorsLayer::permissive());

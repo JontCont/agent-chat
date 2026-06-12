@@ -328,6 +328,9 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
+        // Markdown Images: ![alt](url)
+        html = html.replace(/!\[([^\]]*?)\]\(([^)]+?)\)/g, '<img src="$2" alt="$1" class="chat-image" />');
+
         // Code blocks: ```lang\ncode\n```
         html = html.replace(/```(?:[a-zA-Z0-9]+)?\n([\s\S]*?)(?:```|$)/g, '<pre><code>$1</code></pre>');
 

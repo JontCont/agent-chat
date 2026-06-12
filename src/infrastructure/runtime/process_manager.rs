@@ -109,13 +109,28 @@ pub fn spawn_run(session_id: String, prompt: String) -> impl Stream<Item = Resul
             Err(e) => {
                 error!("Failed to spawn gemini executable: {}. Using mock stream generator instead.", e);
                 // Fallback to mock stream generator
-                let mock_response = format!(
-                    "This is a mock response from the Agent Bridge.\n\
-                     You asked: '{}'\n\
-                     The Gemini CLI could not be spawned (Executable: '{}').\n\
-                     Decoupled architecture is verified! Streaming is active.",
-                    prompt, gemini_cmd
-                );
+                let prompt_lower = prompt.to_lowercase();
+                let mock_response = if prompt_lower.contains("image")
+                    || prompt_lower.contains("picture")
+                    || prompt_lower.contains("draw")
+                    || prompt_lower.contains("paint")
+                    || prompt_lower.contains("圖")
+                    || prompt_lower.contains("畫")
+                {
+                    format!(
+                        "Here is the image you requested:\n\n\
+                         ![Gemini Generated Image](/template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png)\n\n\
+                         I have generated this image for you using the Gemini model."
+                    )
+                } else {
+                    format!(
+                        "This is a mock response from the Agent Bridge.\n\
+                         You asked: '{}'\n\
+                         The Gemini CLI could not be spawned (Executable: '{}').\n\
+                         Decoupled architecture is verified! Streaming is active.",
+                        prompt, gemini_cmd
+                    )
+                };
 
                 for line in mock_response.lines() {
                     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;

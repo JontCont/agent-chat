@@ -173,6 +173,14 @@ body {
                 color: #e2e8f0;
             }
 
+            img {
+                max-width: 100%;
+                border-radius: 12px;
+                margin: 10px 0;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+                display: block;
+            }
+
             pre {
                 background: #05070c;
                 border: 1px solid $border-color;
