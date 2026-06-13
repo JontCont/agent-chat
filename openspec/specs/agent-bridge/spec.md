@@ -15,11 +15,11 @@ The system SHALL support creating a session, initializing it with a status of "s
 
 ---
 ### Requirement: Real-time Message Streaming
-The system SHALL support sending a prompt message to a session with optional Base64 image attachments, decoding the Base64 images to local temporary files on the host, executing the CLI child process, and streaming tokens back via HTTP Server-Sent Events (SSE) which are then pushed to the WebSocket client.
+The system SHALL support sending a prompt message to a session by writing a task to a database task queue, allowing the Local Agent Daemon to poll for the task, execute the CLI child process, and report progress tokens back to the API via HTTP, which are then pushed to the WebSocket client.
 
 #### Scenario: Successful Prompt execution with SSE streaming and image attachments
-- **WHEN** the user sends a POST request to `/sessions/session_123/messages` with a valid prompt and Base64-encoded image attachments, and connects to the WebSocket endpoint `/ws/session_123`
-- **THEN** the Local Agent Daemon SHALL decode the Base64 image data to a temporary file on the host machine, spawn the CLI child process passing the prompt and temporary file path, and stream the generated response back to the client
+- **WHEN** the user sends a POST request to `/sessions/session_123/messages` with a valid prompt and Base64-encoded image attachments
+- **THEN** the API server SHALL write a task to the database task queue, return a HTTP 202 response, and stream the generated response back to the WebSocket client once the Local Agent Daemon polls the task, executes it, and sends progress updates back to the API
 
 ##### Example: Message Payload with Base64 Image
 - **WHEN** the user sends prompt "What is this?" with a PNG image:
@@ -34,43 +34,67 @@ The system SHALL support sending a prompt message to a session with optional Bas
     ]
   }
   ```
-- **THEN** the daemon SHALL write it to a temporary file and pass it to the spawned CLI command.
+- **THEN** the task queue SHALL capture the payload, and the daemon SHALL poll the task, write the image to a temporary file, and pass it to the spawned CLI command.
 
 
 <!-- @trace
-source: add-multimedia-and-human-intervention
-updated: 2026-06-13
+source: daemon-task-queue-polling
+updated: 2026-06-14
 code:
-  - src/frontend/index.js
+  - README.zh-TW.md
   - src/infrastructure/runtime/daemon_client.rs
-  - src/infrastructure/runtime/settings_ui.html
-  - src/api/dto/message_dto.rs
-  - src/frontend/index.html
-  - src/infrastructure/runtime/daemon_settings.rs
-  - src/infrastructure/runtime/mod.rs
-  - src/application/models/session.rs
-  - src/application/services/runtime_service.rs
   - src/infrastructure/runtime/gemini_cli.rs
-  - src/application/ports/runtime_gateway.rs
-  - src/frontend/style.css
-  - daemon_config.json
-  - src/infrastructure/db/message_repository_impl.rs
-  - src/infrastructure/runtime/process_manager.rs
-  - src/infrastructure/db/sqlite.rs
-  - src/application/models/message.rs
-  - Cargo.toml
+  - src/main.rs
+  - README.md
+  - docker-compose.yml
+  - src/application/models/mod.rs
+  - src/infrastructure/config/env.rs
+  - run_api.ps1
   - src/api/routes/sessions.rs
-  - src/application/services/session_service.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/task.rs
   - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
+  - .env.example
+  - run_daemon.ps1
+  - Dockerfile
+  - run_tests.ps1
+  - build_release.ps1
+  - src/api/mod.rs
 -->
 
 ---
 ### Requirement: Run Cancellation
-The system SHALL support canceling a running Gemini CLI execution by tracking the PID of the child process on the host filesystem and sending a termination signal to its process group.
+The system SHALL support canceling a running Gemini CLI execution by updating the task status in the task queue or queueing a cancel task, allowing the Local Agent Daemon to detect the cancellation, terminate the child process tree on the host, and delete the PID file.
 
 #### Scenario: Session Execution Cancelled
 - **WHEN** the user sends a POST request to `/sessions/session_123/cancel` while a run is active
-- **THEN** the Axum API SHALL call `POST /local/sessions/session_123/cancel` on the Daemon, and the Daemon SHALL read the PID from `/tmp/agent-pids/session_123.pid`, send a termination signal to the process tree, delete the PID file, and return success
+- **THEN** the Axum API SHALL update the task in the database task queue, and the Local Agent Daemon SHALL detect the cancellation during polling or progress reporting, send a termination signal to the process tree, delete the PID file, and return success
+
+
+<!-- @trace
+source: daemon-task-queue-polling
+updated: 2026-06-14
+code:
+  - README.zh-TW.md
+  - src/infrastructure/runtime/daemon_client.rs
+  - src/infrastructure/runtime/gemini_cli.rs
+  - src/main.rs
+  - README.md
+  - docker-compose.yml
+  - src/application/models/mod.rs
+  - src/infrastructure/config/env.rs
+  - run_api.ps1
+  - src/api/routes/sessions.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/task.rs
+  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
+  - .env.example
+  - run_daemon.ps1
+  - Dockerfile
+  - run_tests.ps1
+  - build_release.ps1
+  - src/api/mod.rs
+-->
 
 ---
 ### Requirement: SQLite Persistence

@@ -7,28 +7,36 @@ TBD - created by archiving change 'add-daemon-settings-ui'. Update Purpose after
 ## Requirements
 
 ### Requirement: Local Settings Web UI
-The Local Agent Daemon SHALL serve an HTML user interface on the root path (`GET /`) to allow local users to select the active CLI to run.
+The Local Agent Daemon SHALL serve an HTML user interface on the root path (`GET /`) bound to the local loopback interface (localhost) only, to allow local users to select the active CLI to run.
 
 #### Scenario: Serve settings user interface
-- **WHEN** the local user sends a GET request to `/`
+- **WHEN** the local user sends a GET request to `/` on the local loopback interface
 - **THEN** the system SHALL return a HTTP 200 response with the settings HTML page containing a dropdown to select the active CLI and a Save button
 
 
 <!-- @trace
-source: add-daemon-settings-ui
-updated: 2026-06-13
+source: daemon-task-queue-polling
+updated: 2026-06-14
 code:
-  - src/infrastructure/runtime/mod.rs
-  - src/infrastructure/runtime/process_manager.rs
-  - src/frontend/index.html
-  - src/frontend/style.css
-  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
+  - README.zh-TW.md
+  - src/infrastructure/runtime/daemon_client.rs
   - src/infrastructure/runtime/gemini_cli.rs
-  - src/infrastructure/runtime/daemon_settings.rs
-  - src/frontend/index.js
-  - daemon_config.json
-  - Cargo.toml
-  - src/infrastructure/runtime/settings_ui.html
+  - src/main.rs
+  - README.md
+  - docker-compose.yml
+  - src/application/models/mod.rs
+  - src/infrastructure/config/env.rs
+  - run_api.ps1
+  - src/api/routes/sessions.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/task.rs
+  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
+  - .env.example
+  - run_daemon.ps1
+  - Dockerfile
+  - run_tests.ps1
+  - build_release.ps1
+  - src/api/mod.rs
 -->
 
 ---

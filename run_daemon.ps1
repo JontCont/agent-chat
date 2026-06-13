@@ -4,6 +4,7 @@ $env:LIB = "C:\Program Files\Microsoft Visual Studio\18\Insiders\SDK\ScopeCppSDK
 $env:INCLUDE = "C:\Program Files\Microsoft Visual Studio\18\Insiders\SDK\ScopeCppSDK\vc15\VC\include;C:\Program Files\Microsoft Visual Studio\18\Insiders\SDK\ScopeCppSDK\vc15\SDK\include\shared;C:\Program Files\Microsoft Visual Studio\18\Insiders\SDK\ScopeCppSDK\vc15\SDK\include\ucrt;C:\Program Files\Microsoft Visual Studio\18\Insiders\SDK\ScopeCppSDK\vc15\SDK\include\um"
 $env:CARGO_INCREMENTAL = "0"
 $env:RUSTFLAGS = "-C codegen-units=1"
+$env:BRIDGE_URL = "https://agentchat-c0.startfms.uk"
 
 Write-Host "Starting Local Agent Daemon..." -ForegroundColor Green
 cargo run --target-dir target_test -- --daemon
