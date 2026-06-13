@@ -8,23 +8,23 @@ A lightweight, self-hosted chat bridge that connects a browser-based chat UI to 
 Browser (WebSocket)
        │
        ▼
-  Axum API Bridge  ──SSE──▶  Local Agent Daemon  ──spawn──▶  AI CLI Process
-  (port 8080)                 (port 7456)                   (agy / claude / openai…)
+  Axum API Bridge  ◀──Poll/Progress──  Local Agent Daemon  ──spawn──▶  AI CLI Process
+  (port 8080)                           (port 7456, local)            (agy / claude / openai…)
        │
        ▼
-    SQLite
+ SQLite (Tasks Table)
 ```
 
 The system consists of two processes:
 
 | Process | Role |
 |---------|------|
-| **Axum API Bridge** | Serves the chat UI, manages sessions in SQLite, proxies prompts to the Daemon via SSE, and pushes streaming tokens to the browser over WebSocket |
-| **Local Agent Daemon** | Runs on the host machine, spawns AI CLI child processes, streams output back, and manages process lifecycles |
+| **Axum API Bridge** | Serves the chat UI, manages sessions in SQLite, queues execution tasks in SQLite, and pushes streaming tokens to the browser over WebSocket |
+| **Local Agent Daemon** | Runs on the host machine, polls tasks from the API Bridge, spawns AI CLI child processes, and streams progress back via HTTP |
 
 ## Features
 
-- 🔄 **Real-time token streaming** — SSE from Daemon → Axum → WebSocket to browser
+- 🔄 **Real-time token streaming** — Progress stream from Daemon → Axum → WebSocket to browser
 - 🖼️ **Image attachments** — Base64 image upload, decoded and passed to the CLI
 - 🧑‍💼 **Human-in-the-loop** — Operator can take over a session and type manual responses via the Daemon settings UI
 - 🔀 **Multi-CLI support** — Switch between `agy`, `claude`, `openai`, `copilot` at runtime without restart
@@ -49,7 +49,7 @@ Open two terminals:
 **Terminal 1 — Start the Daemon:**
 ```powershell
 .\run_daemon.ps1
-# Daemon listens on http://127.0.0.1:7456
+# Daemon polls the API Bridge and listens on http://127.0.0.1:7456 for settings UI
 ```
 
 **Terminal 2 — Start the API Bridge:**
@@ -67,7 +67,7 @@ Open your browser at **http://localhost:8080**.
 docker compose up -d --build
 ```
 
-> **Note:** The Daemon must run on the host machine (not in Docker) because it needs to spawn local CLI processes. The container connects to it via `host.docker.internal:7456`.
+> **Note:** The Daemon must run on the host machine (not in Docker) because it needs to spawn local CLI processes. It polls the API Bridge container using the `BRIDGE_URL` environment variable.
 
 ```bash
 # View logs
@@ -84,10 +84,9 @@ All configuration is via environment variables (or a `.env` file):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `sqlite:///data/sqlite/agent.db` | SQLite database path |
-| `DAEMON_URL` | `http://host.docker.internal:7456` | URL of the Local Agent Daemon |
 | `PORT` | `8080` | Port for the Axum API Bridge |
 | `DAEMON_PORT` | `7456` | Port the Daemon listens on |
-| `BRIDGE_URL` | `http://127.0.0.1:8080` | URL the Daemon uses to call back the Bridge (set to your public domain when deploying remotely) |
+| `BRIDGE_URL` | `http://127.0.0.1:8080` | URL of the API Bridge that the Daemon connects to for task polling and progress reporting (set to your public domain when deploying remotely) |
 
 ### CLI Path Overrides
 

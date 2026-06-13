@@ -8,23 +8,23 @@
 瀏覽器（WebSocket）
        │
        ▼
-  Axum API 橋接器  ──SSE──▶  本機 Agent Daemon  ──spawn──▶  AI CLI 程序
-  （port 8080）               （port 7456）               （agy / claude / openai…）
+  Axum API 橋接器  ◀──輪詢/進度回報──  本機 Agent Daemon  ──spawn──▶  AI CLI 程序
+  （port 8080）                         （port 7456, 本機）           （agy / claude / openai…）
        │
        ▼
-    SQLite
+ SQLite (任務佇列資料表)
 ```
 
 系統由兩個程序組成：
 
 | 程序 | 職責 |
 |------|------|
-| **Axum API 橋接器** | 提供聊天 UI、以 SQLite 管理 Session、透過 SSE 將提示轉發給 Daemon，並以 WebSocket 將串流 Token 推送至瀏覽器 |
-| **本機 Agent Daemon** | 執行在宿主機上，負責啟動 AI CLI 子程序、串流輸出結果、管理程序生命週期 |
+| **Axum API 橋接器** | 提供聊天 UI、以 SQLite 管理 Session、在 SQLite 中建立任務佇列，並以 WebSocket 將串流 Token 推送至瀏覽器 |
+| **本機 Agent Daemon** | 執行在宿主機上，向 API 橋接器輪詢任務、啟動 AI CLI 子程序，並透過 HTTP 將執行進度串流回傳 |
 
 ## 功能特色
 
-- 🔄 **即時 Token 串流** — Daemon → Axum（SSE）→ 瀏覽器（WebSocket）端對端串流
+- 🔄 **即時 Token 串流** — Daemon → Axum（HTTP 進度回報）→ 瀏覽器（WebSocket）端對端串流
 - 🖼️ **圖片附件** — 支援 Base64 圖片上傳，自動解碼後傳入 CLI
 - 🧑‍💼 **人工介入（Human-in-the-loop）** — 客服人員可透過 Daemon 設定 UI 接管 Session，手動輸入回覆
 - 🔀 **多 CLI 支援** — 執行期間切換 `agy`、`claude`、`openai`、`copilot`，無需重啟
@@ -49,7 +49,7 @@
 **終端機 1 — 啟動 Daemon：**
 ```powershell
 .\run_daemon.ps1
-# Daemon 監聽於 http://127.0.0.1:7456
+# Daemon 會向 API 橋接器輪詢任務，並在 http://127.0.0.1:7456 提供本地設定 UI
 ```
 
 **終端機 2 — 啟動 API 橋接器：**
@@ -67,7 +67,7 @@
 docker compose up -d --build
 ```
 
-> **注意：** Daemon 必須執行在宿主機（非 Docker 容器內），因為它需要在本機啟動 CLI 程序。容器透過 `host.docker.internal:7456` 與其通訊。
+> **注意：** Daemon 必須執行在宿主機（非 Docker 容器內），因為它需要在本機啟動 CLI 程序。Daemon 會使用 `BRIDGE_URL` 環境變數向 API 橋接器進行 Outbound 輪詢。
 
 ```bash
 # 查看 log
@@ -84,10 +84,9 @@ docker compose down
 | 變數 | 預設值 | 說明 |
 |------|--------|------|
 | `DATABASE_URL` | `sqlite:///data/sqlite/agent.db` | SQLite 資料庫路徑 |
-| `DAEMON_URL` | `http://host.docker.internal:7456` | Local Agent Daemon 的 URL |
 | `PORT` | `8080` | Axum API 橋接器監聽 Port |
-| `DAEMON_PORT` | `7456` | Daemon 監聽 Port |
-| `BRIDGE_URL` | `http://127.0.0.1:8080` | Daemon 回呼 Bridge 的 URL（遠端部屬時設為對外 domain） |
+| `DAEMON_PORT` | `7456` | Daemon 本地設定服務監聽 Port |
+| `BRIDGE_URL` | `http://127.0.0.1:8080` | Daemon 連接與輪詢 API 橋接器（Bridge）的 URL（遠端部屬時設為對外公網 domain） |
 
 ### CLI 執行路徑覆寫
 
