@@ -12,6 +12,28 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentModelMessageContent = null;
     let currentModelMessageText = '';
 
+    // Configure marked.js for markdown rendering
+    if (typeof marked !== 'undefined') {
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            highlight: function(code, lang) {
+                if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                    try {
+                        return hljs.highlight(code, { language: lang }).value;
+                    } catch (e) { /* fall through */ }
+                }
+                // Auto-detect for unknown languages
+                if (typeof hljs !== 'undefined') {
+                    try {
+                        return hljs.highlightAuto(code).value;
+                    } catch (e) { /* fall through */ }
+                }
+                return code;
+            }
+        });
+    }
+
     // Initialize the application
     initSession();
 
@@ -234,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
         messageDiv.className = 'message model-message';
         
         const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
+        contentDiv.className = 'message-content markdown-body';
         contentDiv.innerHTML = '<p><em>Thinking...</em></p>';
 
         messageDiv.appendChild(contentDiv);
@@ -318,37 +340,46 @@ document.addEventListener('DOMContentLoaded', () => {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    // Basic markdown parsing to HTML
+    // Markdown rendering using marked.js with fallback
     function formatMarkdown(text) {
         if (!text) return '';
 
-        // Escape HTML
+        // Use marked.js if available
+        if (typeof marked !== 'undefined') {
+            try {
+                return marked.parse(text);
+            } catch (e) {
+                console.error('marked.parse() error:', e);
+            }
+        }
+
+        // Fallback: basic markdown rendering
         let html = text
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
-        // Markdown Images: ![alt](url)
-        html = html.replace(/!\[([^\]]*?)\]\(([^)]+?)\)/g, '<img src="$2" alt="$1" class="chat-image" />');
-
-        // Code blocks: ```lang\ncode\n```
+        // Images
+        html = html.replace(/!\[([^\]]*?)\]\(([^)]+?)\)/g, '<img src="$2" alt="$1" />');
+        // Bold
+        html = html.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+        // Italic
+        html = html.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+        // Code blocks
         html = html.replace(/```(?:[a-zA-Z0-9]+)?\n([\s\S]*?)(?:```|$)/g, '<pre><code>$1</code></pre>');
-
-        // Inline code: `code`
+        // Inline code
         html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+        // Headers
+        html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+        html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
-        // Split by double line breaks for paragraph breaks
+        // Paragraphs
         const parts = html.split('\n\n');
-        const processedParts = parts.map(part => {
+        return parts.map(part => {
             const trimmed = part.trim();
-            if (trimmed.startsWith('<pre>')) {
-                return trimmed;
-            }
-            // Replace single newlines with <br>
-            const inner = trimmed.replace(/\n/g, '<br>');
-            return trimmed ? `<p>${inner}</p>` : '';
-        });
-
-        return processedParts.join('');
+            if (!trimmed || trimmed.startsWith('<pre>') || trimmed.startsWith('<h')) return trimmed;
+            return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+        }).join('');
     }
 });

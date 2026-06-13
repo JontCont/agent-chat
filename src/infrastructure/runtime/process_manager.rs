@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::AsyncReadExt;
 use futures_util::Stream;
 use tracing::{info, error, warn};
 
@@ -130,6 +130,28 @@ fn strip_ansi_escapes(input: &str) -> String {
     result
 }
 
+/// Extract the actual response from raw conhost --headless output.
+///
+/// The agy TUI renders agent thinking steps (tool calls, file inspections, etc.)
+/// on screen, then clears the screen with `\x1B[2J` before displaying the final
+/// response. By finding the last clear screen sequence, we discard all the
+/// intermediate "I will check..." planning text and extract only the actual answer.
+fn extract_response(raw_bytes: &[u8]) -> String {
+    let clear_screen = b"\x1B[2J";
+
+    // Find the last occurrence of clear screen
+    let start_pos = raw_bytes
+        .windows(clear_screen.len())
+        .rposition(|w| w == clear_screen)
+        .map(|pos| pos + clear_screen.len())
+        .unwrap_or(0);
+
+    let content = &raw_bytes[start_pos..];
+    let text = String::from_utf8_lossy(content);
+    let cleaned = strip_ansi_escapes(&text);
+    cleaned.trim().to_string()
+}
+
 pub fn spawn_run(session_id: String, prompt: String) -> impl Stream<Item = Result<String, std::io::Error>> + Send {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
     
@@ -149,37 +171,49 @@ pub fn spawn_run(session_id: String, prompt: String) -> impl Stream<Item = Resul
                     let _ = write_pid(&session_id, pid);
                 }
 
-                let stdout = child.stdout.take().unwrap();
-                let stderr = child.stderr.take().unwrap();
-                let mut stdout_reader = BufReader::new(stdout).lines();
-                let mut stderr_reader = BufReader::new(stderr).lines();
+                let mut stdout = child.stdout.take().unwrap();
+                let mut stderr = child.stderr.take().unwrap();
 
                 // Monitor stderr in background
                 let session_id_err = session_id.clone();
                 tokio::spawn(async move {
-                    while let Ok(Some(line)) = stderr_reader.next_line().await {
-                        // Don't log conhost/ANSI noise as errors
-                        let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            warn!("Antigravity CLI stderr (session {}): {}", session_id_err, trimmed);
+                    let mut buf = Vec::new();
+                    let _ = stderr.read_to_end(&mut buf).await;
+                    if !buf.is_empty() {
+                        let text = String::from_utf8_lossy(&buf);
+                        let cleaned = strip_ansi_escapes(&text);
+                        for line in cleaned.lines() {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                warn!("Antigravity CLI stderr (session {}): {}", session_id_err, trimmed);
+                            }
                         }
                     }
                 });
 
-                // Stream stdout deltas, stripping ANSI escape sequences on Windows
-                while let Ok(Some(raw_line)) = stdout_reader.next_line().await {
-                    let line = strip_ansi_escapes(&raw_line);
-                    // Skip empty lines that were purely ANSI control sequences
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    if tx.send(Ok(line)).await.is_err() {
-                        break;
-                    }
-                }
+                // Read ALL stdout bytes — we need the complete output to find
+                // the boundary between agent thinking and the actual response.
+                // The agy TUI clears the screen (\x1B[2J) before the final answer.
+                let mut all_bytes = Vec::new();
+                let _ = stdout.read_to_end(&mut all_bytes).await;
 
                 let _ = child.wait().await;
                 delete_pid(&session_id);
+
+                // Extract the actual response (everything after the last clear screen)
+                let response = extract_response(&all_bytes);
+
+                if response.is_empty() {
+                    warn!("Empty response from agy for session {}", session_id);
+                } else {
+                    info!("Extracted response ({} bytes) for session {}", response.len(), session_id);
+                    // Send each line (including empty lines for paragraph breaks)
+                    for line in response.lines() {
+                        if tx.send(Ok(line.to_string())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
             }
             Err(e) => {
                 error!("Failed to spawn agy executable: {}. Using mock stream generator instead.", e);
