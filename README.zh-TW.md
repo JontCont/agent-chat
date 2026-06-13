@@ -87,6 +87,7 @@ docker compose down
 | `DAEMON_URL` | `http://host.docker.internal:7456` | Local Agent Daemon 的 URL |
 | `PORT` | `8080` | Axum API 橋接器監聽 Port |
 | `DAEMON_PORT` | `7456` | Daemon 監聽 Port |
+| `BRIDGE_URL` | `http://127.0.0.1:8080` | Daemon 回呼 Bridge 的 URL（遠端部屬時設為對外 domain） |
 
 ### CLI 執行路徑覆寫
 

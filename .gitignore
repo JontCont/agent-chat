@@ -1,3 +1,5 @@
 .spectra/
 openspec/.vector-search.db*
 target*/
+.env
+data/

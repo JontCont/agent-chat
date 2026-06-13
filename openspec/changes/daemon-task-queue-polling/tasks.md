@@ -1,0 +1,14 @@
+## 1. Database Setup and Task Polling API Endpoints
+
+- [x] 1.1 Implement task queue schema: In `src/infrastructure/db/sqlite.rs`, initialize the `tasks` table containing `id`, `session_id`, `task_type`, `payload`, `status`, `created_at`, `updated_at`. This aligns with `Decision: Use SQLite Tasks Table for Task Queueing`. Verification: Run the server and confirm the sqlite file creates the `tasks` table schema using sqlite3 command-line check or testing db connection.
+- [x] 1.2 Implement task endpoints: In `src/api/routes/sessions.rs`, expose `GET /sessions/tasks/poll` and `POST /sessions/tasks/:task_id/progress` and `POST /sessions/tasks/:task_id/complete` to poll pending tasks and submit progress/completion data. This aligns with `Decision: Expose Task Polling and Progress Endpoints on Axum API`. Verification: Run the Axum API and curl the endpoints to verify HTTP response statuses and DB changes.
+
+## 2. API Streaming and Task Integration
+
+- [x] 2.1 Implement in-memory channel registry: Create a `TaskStreamRegistry` in `src/infrastructure/runtime/daemon_client.rs` or `src/api/AppState` to store the sending end of the token stream. Integrate this with `DaemonClient::send_message` to insert a task in the database and return a stream driven by the `/progress` endpoint updates. This aligns with `Decision: In-Memory MPSC Channel Registry for SSE Token Streaming`. Verification: Run unit tests or verify via manual stream endpoint check that text pushed to the registry is streamed out.
+- [x] 2.2 Implement Real-time Message Streaming logic: Refactor `DaemonClient`'s implementations of `send_message` and `cancel_run` in `src/infrastructure/runtime/daemon_client.rs` to write tasks to the SQLite database instead of calling the Daemon's old HTTP server. This delivers `Requirement: Real-time Message Streaming` and `Requirement: Run Cancellation`. Verification: Ensure cargo build succeeds and check that triggering a message run creates a row in the `tasks` table.
+
+## 3. Daemon Refactor and Settings UI
+
+- [x] 3.1 Implement Daemon Task Polling loop: In `src/infrastructure/runtime/gemini_cli.rs`, spawn a Tokio background task loop that calls the Axum API endpoints to poll and execute tasks and report progress/completion. This aligns with `Decision: Daemon Loop to Bind to Localhost and Poll API`. Verification: Run the daemon binary with the API server running, and verify that the daemon polls the API and prints logs.
+- [x] 3.2 Implement Local Settings Web UI localhost bind: Restrict the Daemon's HTTP settings server in `src/infrastructure/runtime/gemini_cli.rs` to bind strictly to `127.0.0.1` instead of `0.0.0.0`. This delivers `Requirement: Local Settings Web UI`. Verification: Verify via `netstat` or manual connection that port 7456 is not accessible from external hosts, but is accessible from localhost.

@@ -2,14 +2,12 @@ version: '3.8'
 
 services:
   api:
+    # image: johncons/chat-bot-api:latest
     build: .
     ports:
       - "8080:8080"
     volumes:
       - ./data/sqlite:/data/sqlite
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       - DATABASE_URL=sqlite:///data/sqlite/agent.db
-      - DAEMON_URL=http://host.docker.internal:7456
       - PORT=8080

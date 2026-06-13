@@ -1,158 +1,234 @@
 use crate::application::ports::runtime_gateway::RuntimeGateway;
 use crate::application::models::message::Attachment;
-use reqwest::Client;
-use futures_util::{Stream, StreamExt};
+use futures_util::Stream;
+use std::collections::HashMap;
 use std::io;
 use std::future::Future;
 use std::pin::Pin;
-use tracing::{info, error};
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+use tracing::error;
+
+#[derive(Clone)]
+pub struct TaskStreamRegistry {
+    senders: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Result<String, io::Error>>>>>,
+}
+
+impl TaskStreamRegistry {
+    pub fn new() -> Self {
+        Self {
+            senders: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub async fn register(&self, task_id: String, tx: mpsc::UnboundedSender<Result<String, io::Error>>) {
+        let mut senders = self.senders.write().await;
+        senders.insert(task_id, tx);
+    }
+
+    pub async fn unregister(&self, task_id: &str) {
+        let mut senders = self.senders.write().await;
+        senders.remove(task_id);
+    }
+
+    pub async fn send(&self, task_id: &str, line: Result<String, io::Error>) -> bool {
+        let senders = self.senders.read().await;
+        if let Some(tx) = senders.get(task_id) {
+            tx.send(line).is_ok()
+        } else {
+            false
+        }
+    }
+}
 
 pub struct DaemonClient {
-    client: Client,
-    daemon_url: String,
+    pool: sqlx::SqlitePool,
+    pub task_streams: Arc<TaskStreamRegistry>,
 }
 
 impl DaemonClient {
-    pub fn new(daemon_url: String) -> Self {
+    pub fn new(pool: sqlx::SqlitePool, task_streams: Arc<TaskStreamRegistry>) -> Self {
         Self {
-            client: Client::new(),
-            daemon_url,
+            pool,
+            task_streams,
         }
     }
 }
 
 impl RuntimeGateway for DaemonClient {
     fn send_message(&self, session_id: &str, content: &str, attachments: Option<Vec<Attachment>>, active_cli: Option<String>) -> Pin<Box<dyn Stream<Item = Result<String, io::Error>> + Send>> {
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
-        let url = format!("{}/local/sessions/{}/messages", self.daemon_url, session_id);
-        let client = self.client.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let pool = self.pool.clone();
+        let task_streams = self.task_streams.clone();
+        
+        let session_id = session_id.to_string();
         let content = content.to_string();
         let attachments = attachments.clone();
         let active_cli = active_cli.clone();
 
         tokio::spawn(async move {
-            info!("Sending prompt to Daemon endpoint: {}", url);
-            let res = client.post(&url)
-                .json(&serde_json::json!({ "content": content, "attachments": attachments, "active_cli": active_cli }))
-                .send()
-                .await;
+            let task_id = uuid::Uuid::new_v4().to_string();
+            
+            // Register task sender in task_streams registry
+            task_streams.register(task_id.clone(), tx.clone()).await;
 
-            let response = match res {
-                Ok(r) => r,
-                Err(e) => {
-                    error!("Connection to Daemon refused or failed: {:?}", e);
-                    let _ = tx.send(Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))).await;
-                    return;
-                }
-            };
+            // Prepare payload JSON
+            let payload = serde_json::json!({
+                "content": content,
+                "attachments": attachments,
+                "active_cli": active_cli,
+            }).to_string();
 
-            let mut stream = response.bytes_stream();
-            let mut buffer = String::new();
+            let now = chrono::Utc::now().to_rfc3339();
 
-            while let Some(chunk_res) = stream.next().await {
-                let chunk = match chunk_res {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        error!("Error reading stream chunk from Daemon: {:?}", e);
-                        let _ = tx.send(Err(io::Error::new(io::ErrorKind::Other, e.to_string()))).await;
-                        return;
-                    }
-                };
+            // Insert "run" task into SQLite
+            let insert_res = sqlx::query(
+                "INSERT INTO tasks (id, session_id, task_type, payload, status, created_at, updated_at)
+                 VALUES (?, ?, 'run', ?, 'pending', ?, ?)"
+            )
+            .bind(&task_id)
+            .bind(&session_id)
+            .bind(&payload)
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await;
 
-                let text = String::from_utf8_lossy(&chunk);
-                buffer.push_str(&text);
-                
-                while let Some(line_end) = buffer.find('\n') {
-                    let line = buffer[..line_end].trim_end().to_string();
-                    buffer = buffer[line_end + 1..].to_string();
-
-                    if !line.is_empty() {
-                        if tx.send(Ok(line)).await.is_err() {
-                            break;
-                        }
-                    }
-                }
+            if let Err(e) = insert_res {
+                error!("Failed to insert run task into SQLite: {:?}", e);
+                let _ = tx.send(Err(io::Error::new(io::ErrorKind::Other, e.to_string())));
+                task_streams.unregister(&task_id).await;
             }
         });
 
-        Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))
+        // Convert unbounded receiver to stream
+        Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
     }
 
     fn cancel_run(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
-        let url = format!("{}/local/sessions/{}/cancel", self.daemon_url, session_id);
-        let client = self.client.clone();
+        let pool = self.pool.clone();
+        let session_id = session_id.to_string();
         Box::pin(async move {
-            info!("Sending cancel request to Daemon at: {}", url);
-            let res = client.post(&url).send().await;
-            match res {
-                Ok(resp) if resp.status().is_success() => Ok(()),
-                Ok(resp) => {
-                    error!("Daemon returned failure status on cancel: {}", resp.status());
-                    Err(io::Error::new(io::ErrorKind::Other, format!("Daemon returned error status: {}", resp.status())))
-                }
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+
+            // Update any running/pending tasks for this session to 'cancelled'
+            let update_res = sqlx::query(
+                "UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE session_id = ? AND status IN ('pending', 'running')"
+            )
+            .bind(&now)
+            .bind(&session_id)
+            .execute(&pool)
+            .await;
+
+            if let Err(e) = update_res {
+                error!("Failed to update tasks status to cancelled: {:?}", e);
+            }
+
+            // Also insert a "cancel" task so that the Daemon receives it if it's polling
+            let insert_res = sqlx::query(
+                "INSERT INTO tasks (id, session_id, task_type, payload, status, created_at, updated_at)
+                 VALUES (?, ?, 'cancel', NULL, 'pending', ?, ?)"
+            )
+            .bind(&task_id)
+            .bind(&session_id)
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await;
+
+            match insert_res {
+                Ok(_) => Ok(()),
                 Err(e) => {
-                    error!("Failed to connect to Daemon for cancellation: {:?}", e);
-                    Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
+                    error!("Failed to insert cancel task into SQLite: {:?}", e);
+                    Err(io::Error::new(io::ErrorKind::Other, e.to_string()))
                 }
             }
         })
     }
 
     fn delete_session(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
-        let url = format!("{}/local/sessions/{}", self.daemon_url, session_id);
-        let client = self.client.clone();
+        let pool = self.pool.clone();
+        let session_id = session_id.to_string();
         Box::pin(async move {
-            info!("Sending DELETE request to Daemon at: {}", url);
-            let res = client.delete(&url).send().await;
-            match res {
-                Ok(resp) if resp.status().is_success() => Ok(()),
-                Ok(resp) => {
-                    error!("Daemon returned failure status on DELETE: {}", resp.status());
-                    Err(io::Error::new(io::ErrorKind::Other, format!("Daemon returned error status: {}", resp.status())))
-                }
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+
+            // Insert "delete" task
+            let insert_res = sqlx::query(
+                "INSERT INTO tasks (id, session_id, task_type, payload, status, created_at, updated_at)
+                 VALUES (?, ?, 'delete', NULL, 'pending', ?, ?)"
+            )
+            .bind(&task_id)
+            .bind(&session_id)
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await;
+
+            match insert_res {
+                Ok(_) => Ok(()),
                 Err(e) => {
-                    error!("Failed to connect to Daemon for session delete: {:?}", e);
-                    Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
+                    error!("Failed to insert delete task: {:?}", e);
+                    Err(io::Error::new(io::ErrorKind::Other, e.to_string()))
                 }
             }
         })
     }
 
     fn set_human_mode(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
-        let url = format!("{}/local/sessions/{}/sync-human", self.daemon_url, session_id);
-        let client = self.client.clone();
+        let pool = self.pool.clone();
+        let session_id = session_id.to_string();
         Box::pin(async move {
-            info!("Sending set-human request to Daemon at: {}", url);
-            let res = client.post(&url).send().await;
-            match res {
-                Ok(resp) if resp.status().is_success() => Ok(()),
-                Ok(resp) => {
-                    error!("Daemon returned failure status on set-human: {}", resp.status());
-                    Err(io::Error::new(io::ErrorKind::Other, format!("Daemon returned error status: {}", resp.status())))
-                }
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+
+            // Insert "set_human" task
+            let insert_res = sqlx::query(
+                "INSERT INTO tasks (id, session_id, task_type, payload, status, created_at, updated_at)
+                 VALUES (?, ?, 'set_human', NULL, 'pending', ?, ?)"
+            )
+            .bind(&task_id)
+            .bind(&session_id)
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await;
+
+            match insert_res {
+                Ok(_) => Ok(()),
                 Err(e) => {
-                    error!("Failed to connect to Daemon for set-human: {:?}", e);
-                    Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
+                    error!("Failed to insert set_human task: {:?}", e);
+                    Err(io::Error::new(io::ErrorKind::Other, e.to_string()))
                 }
             }
         })
     }
 
     fn set_ready_mode(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
-        let url = format!("{}/local/sessions/{}/sync-ready", self.daemon_url, session_id);
-        let client = self.client.clone();
+        let pool = self.pool.clone();
+        let session_id = session_id.to_string();
         Box::pin(async move {
-            info!("Sending set-ready request to Daemon at: {}", url);
-            let res = client.post(&url).send().await;
-            match res {
-                Ok(resp) if resp.status().is_success() => Ok(()),
-                Ok(resp) => {
-                    error!("Daemon returned failure status on set-ready: {}", resp.status());
-                    Err(io::Error::new(io::ErrorKind::Other, format!("Daemon returned error status: {}", resp.status())))
-                }
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+
+            // Insert "set_ready" task
+            let insert_res = sqlx::query(
+                "INSERT INTO tasks (id, session_id, task_type, payload, status, created_at, updated_at)
+                 VALUES (?, ?, 'set_ready', NULL, 'pending', ?, ?)"
+            )
+            .bind(&task_id)
+            .bind(&session_id)
+            .bind(&now)
+            .bind(&now)
+            .execute(&pool)
+            .await;
+
+            match insert_res {
+                Ok(_) => Ok(()),
                 Err(e) => {
-                    error!("Failed to connect to Daemon for set-ready: {:?}", e);
-                    Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
+                    error!("Failed to insert set_ready task: {:?}", e);
+                    Err(io::Error::new(io::ErrorKind::Other, e.to_string()))
                 }
             }
         })

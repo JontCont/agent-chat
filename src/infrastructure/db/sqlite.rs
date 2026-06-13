@@ -58,6 +58,21 @@ pub async fn init_db(database_url: &str) -> Result<sqlx::SqlitePool, sqlx::Error
     .execute(&pool)
     .await?;
 
+    // Create tasks table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS tasks (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            task_type TEXT NOT NULL,
+            payload TEXT,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );"
+    )
+    .execute(&pool)
+    .await?;
+
     // Alter messages table if attachments column is missing
     let count: i32 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'attachments';"

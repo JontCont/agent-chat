@@ -177,8 +177,8 @@ async fn handle_set_human(Path(id): Path<String>) -> StatusCode {
     }
 
     // Forward to Bridge POST /sessions/:id/human
-    let bridge_port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    let bridge_url = format!("http://127.0.0.1:{}/sessions/{}/human", bridge_port, id);
+    let bridge_base = bridge_base_url();
+    let bridge_url = format!("{}/sessions/{}/human", bridge_base, id);
     let client = reqwest::Client::new();
     if let Err(e) = client.post(&bridge_url).send().await {
         tracing::warn!("Failed to notify Bridge of human status from Daemon: {:?}", e);
@@ -197,8 +197,8 @@ async fn handle_set_ready(Path(id): Path<String>) -> StatusCode {
     }
 
     // Forward to Bridge POST /sessions/:id/ready
-    let bridge_port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    let bridge_url = format!("http://127.0.0.1:{}/sessions/{}/ready", bridge_port, id);
+    let bridge_base = bridge_base_url();
+    let bridge_url = format!("{}/sessions/{}/ready", bridge_base, id);
     let client = reqwest::Client::new();
     if let Err(e) = client.post(&bridge_url).send().await {
         tracing::warn!("Failed to notify Bridge of ready status from Daemon: {:?}", e);
@@ -282,8 +282,8 @@ async fn post_manual_response(
 
     // 5. Forward the operator response to the Bridge!
     // Construct the URL to Bridge API: http://127.0.0.1:8080/sessions/{id}/operator-response
-    let bridge_port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    let bridge_url = format!("http://127.0.0.1:{}/sessions/{}/operator-response", bridge_port, id);
+    let bridge_base = bridge_base_url();
+    let bridge_url = format!("{}/sessions/{}/operator-response", bridge_base, id);
     info!("Forwarding operator override response to Bridge: {}", bridge_url);
 
     let client = reqwest::Client::new();
@@ -310,7 +310,225 @@ async fn post_manual_response(
     (StatusCode::OK, Json(serde_json::json!({ "streamed": is_active }))).into_response()
 }
 
+fn bridge_base_url() -> String {
+    std::env::var("BRIDGE_URL").unwrap_or_else(|_| {
+        let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+        format!("http://127.0.0.1:{}", port)
+    })
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Task {
+    id: String,
+    session_id: String,
+    task_type: String,
+    payload: Option<String>,
+    status: String,
+}
+
+#[derive(Serialize)]
+struct ProgressRequest {
+    line: String,
+}
+
+#[derive(Serialize)]
+struct CompleteRequest {
+    status: String,
+    error: Option<String>,
+}
+
+async fn start_task_polling_loop() {
+    let client = reqwest::Client::new();
+    let bridge_base = bridge_base_url();
+    let poll_url = format!("{}/sessions/tasks/poll", bridge_base);
+    info!("Starting daemon task polling loop at {}", poll_url);
+
+    loop {
+        match client.get(&poll_url).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    match resp.json::<Option<Task>>().await {
+                        Ok(Some(task)) => {
+                            info!("Polled a task: {:?}", task);
+                            let client_clone = client.clone();
+                            let bridge_base_clone = bridge_base.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = execute_task(task, client_clone, bridge_base_clone).await {
+                                    error!("Task execution failed: {:?}", e);
+                                }
+                            });
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            error!("Failed to parse poll response: {:?}", e);
+                        }
+                    }
+                } else {
+                    error!("API returned error status on poll: {}", resp.status());
+                }
+            }
+            Err(e) => {
+                error!("Connection to API server failed: {:?}", e);
+            }
+        }
+        
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+}
+
+async fn execute_task(task: Task, client: reqwest::Client, bridge_base: String) -> Result<(), String> {
+    let complete_url = format!("{}/sessions/tasks/{}/complete", bridge_base, task.id);
+    let progress_url = format!("{}/sessions/tasks/{}/progress", bridge_base, task.id);
+
+    match task.task_type.as_str() {
+        "run" => {
+            let payload_str = task.payload.ok_or_else(|| "Missing payload for run task".to_string())?;
+            let request: DaemonMessageRequest = serde_json::from_str(&payload_str)
+                .map_err(|e| format!("Failed to parse run payload: {:?}", e))?;
+
+            let settings = DaemonSettings::load();
+            let active_cli = request.active_cli.unwrap_or(settings.active_cli);
+            let mut stream = crate::infrastructure::runtime::process_manager::spawn_run(
+                task.session_id.clone(),
+                request.content,
+                request.attachments,
+                active_cli,
+            );
+
+            let mut accumulated = String::new();
+            let mut failed = false;
+            let mut err_msg = None;
+
+            while let Some(res) = stream.next().await {
+                match res {
+                    Ok(line) => {
+                        accumulated.push_str(&line);
+                        accumulated.push('\n');
+
+                        // Report event: delta
+                        let _ = client.post(&progress_url)
+                            .json(&ProgressRequest { line: "event: delta".to_string() })
+                            .send()
+                            .await;
+
+                        // Report data line
+                        let data_json = serde_json::json!({ "text": format!("{}\n", line) }).to_string();
+                        let prog_resp = client.post(&progress_url)
+                            .json(&ProgressRequest { line: format!("data: {}", data_json) })
+                            .send()
+                            .await;
+
+                        if let Ok(r) = prog_resp {
+                            #[derive(Deserialize)]
+                            struct ProgressResponse {
+                                #[serde(rename = "continue")]
+                                cont: bool,
+                            }
+                            if let Ok(prog_data) = r.json::<ProgressResponse>().await {
+                                if !prog_data.cont {
+                                    info!("Task {} was cancelled. Terminating process.", task.id);
+                                    if let Some(pid) = crate::infrastructure::runtime::process_manager::get_pid(&task.session_id) {
+                                        let _ = crate::infrastructure::runtime::process_manager::terminate_process_tree(pid).await;
+                                        crate::infrastructure::runtime::process_manager::delete_pid(&task.session_id);
+                                    }
+                                    failed = true;
+                                    err_msg = Some("Task cancelled by user".to_string());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        failed = true;
+                        err_msg = Some(e.to_string());
+                        break;
+                    }
+                }
+            }
+
+            if !failed {
+                // Report event: done
+                let _ = client.post(&progress_url)
+                    .json(&ProgressRequest { line: "event: done".to_string() })
+                    .send()
+                    .await;
+
+                let done_json = serde_json::json!({ "text": accumulated.trim_end() }).to_string();
+                let _ = client.post(&progress_url)
+                    .json(&ProgressRequest { line: format!("data: {}", done_json) })
+                    .send()
+                    .await;
+
+                let _ = client.post(&complete_url)
+                    .json(&CompleteRequest { status: "completed".to_string(), error: None })
+                    .send()
+                    .await;
+            } else {
+                let _ = client.post(&complete_url)
+                    .json(&CompleteRequest { status: "failed".to_string(), error: err_msg })
+                    .send()
+                    .await;
+            }
+        }
+        "cancel" => {
+            if let Some(pid) = crate::infrastructure::runtime::process_manager::get_pid(&task.session_id) {
+                let _ = crate::infrastructure::runtime::process_manager::terminate_process_tree(pid).await;
+                crate::infrastructure::runtime::process_manager::delete_pid(&task.session_id);
+            }
+            let _ = client.post(&complete_url)
+                .json(&CompleteRequest { status: "completed".to_string(), error: None })
+                .send()
+                .await;
+        }
+        "delete" => {
+            if let Some(pid) = crate::infrastructure::runtime::process_manager::get_pid(&task.session_id) {
+                let _ = crate::infrastructure::runtime::process_manager::terminate_process_tree(pid).await;
+            }
+            crate::infrastructure::runtime::process_manager::delete_pid(&task.session_id);
+            let _ = client.post(&complete_url)
+                .json(&CompleteRequest { status: "completed".to_string(), error: None })
+                .send()
+                .await;
+        }
+        "set_human" => {
+            {
+                let mut registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+                let session = registry.entry(task.session_id.clone()).or_insert_with(|| crate::infrastructure::runtime::process_manager::ActiveSession {
+                    manual_tx: None,
+                    history: Vec::new(),
+                    is_human: true,
+                });
+                session.is_human = true;
+            }
+            let _ = client.post(&complete_url)
+                .json(&CompleteRequest { status: "completed".to_string(), error: None })
+                .send()
+                .await;
+        }
+        "set_ready" => {
+            {
+                let mut registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+                if let Some(session) = registry.get_mut(&task.session_id) {
+                    session.is_human = false;
+                }
+            }
+            let _ = client.post(&complete_url)
+                .json(&CompleteRequest { status: "completed".to_string(), error: None })
+                .send()
+                .await;
+        }
+        other => return Err(format!("Unknown task type: {}", other)),
+    }
+
+    Ok(())
+}
+
 pub async fn run_daemon(port: u16) {
+    // Start background task polling loop
+    tokio::spawn(async move {
+        start_task_polling_loop().await;
+    });
+
     let app = router();
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await.unwrap();
     info!("Local Agent Daemon listening on http://127.0.0.1:{}", port);

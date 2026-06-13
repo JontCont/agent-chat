@@ -6,7 +6,7 @@ use crate::infrastructure::config::env::Config;
 use crate::infrastructure::db::sqlite::init_db;
 use crate::infrastructure::db::session_repository_impl::SqliteSessionRepository;
 use crate::infrastructure::db::message_repository_impl::SqliteMessageRepository;
-use crate::infrastructure::runtime::daemon_client::DaemonClient;
+use crate::infrastructure::runtime::daemon_client::{DaemonClient, TaskStreamRegistry};
 use crate::infrastructure::realtime::ws_registry::WebSocketRegistry;
 use crate::application::services::session_service::SessionService;
 use crate::application::services::runtime_service::RuntimeService;
@@ -56,7 +56,8 @@ async fn main() {
     // 2. Instantiate Repositories, Clients, and Registries
     let session_repo = Arc::new(SqliteSessionRepository::new(pool.clone()));
     let message_repo = Arc::new(SqliteMessageRepository::new(pool.clone()));
-    let daemon_client = Arc::new(DaemonClient::new(config.daemon_url));
+    let task_streams = Arc::new(TaskStreamRegistry::new());
+    let daemon_client = Arc::new(DaemonClient::new(pool.clone(), task_streams.clone()));
     let ws_registry = Arc::new(WebSocketRegistry::new());
 
     // 3. Instantiate Application Services
@@ -77,6 +78,8 @@ async fn main() {
         session_service,
         runtime_service,
         ws_registry,
+        pool: pool.clone(),
+        task_streams,
     });
 
     // 6. Build Axum Router

@@ -5,5 +5,11 @@ $env:INCLUDE = "C:\Program Files\Microsoft Visual Studio\18\Insiders\SDK\ScopeCp
 $env:CARGO_INCREMENTAL = "0"
 $env:RUSTFLAGS = "-C codegen-units=1"
 
-Write-Host "Starting Axum API Service..." -ForegroundColor Green
-cargo run --target-dir target_test
+Write-Host "Building release binary..." -ForegroundColor Green
+cargo build --release --bin rust-axum-agent-bridge
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Done: target\release\rust-axum-agent-bridge.exe" -ForegroundColor Cyan
+} else {
+    Write-Host "Build failed." -ForegroundColor Red
+}

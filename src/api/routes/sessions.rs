@@ -21,6 +21,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/human", post(transfer_to_human))
         .route("/:id/ready", post(restore_to_ready))
         .route("/:id/operator-response", post(post_operator_response))
+        .route("/tasks/poll", get(poll_tasks))
+        .route("/tasks/:task_id/progress", post(post_task_progress))
+        .route("/tasks/:task_id/complete", post(post_task_complete))
 }
 
 async fn create_session(
@@ -166,3 +169,82 @@ async fn post_operator_response(
         )),
     }
 }
+
+#[derive(serde::Deserialize)]
+pub struct ProgressRequest {
+    pub line: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CompleteRequest {
+    pub status: String,
+    pub error: Option<String>,
+}
+
+async fn poll_tasks(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let now = chrono::Utc::now().to_rfc3339();
+    
+    let task: Option<crate::application::models::task::Task> = sqlx::query_as(
+        "UPDATE tasks 
+         SET status = 'running', updated_at = ? 
+         WHERE id = (SELECT id FROM tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1)
+         RETURNING id, session_id, task_type, payload, status, created_at, updated_at;"
+    )
+    .bind(&now)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(task))
+}
+
+async fn post_task_progress(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+    Json(payload): Json<ProgressRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM tasks WHERE id = ?")
+        .bind(&task_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if let Some(s) = status {
+        if s == "cancelled" {
+            return Ok(Json(serde_json::json!({ "continue": false })));
+        }
+    }
+
+    state.task_streams.send(&task_id, Ok(payload.line)).await;
+
+    Ok(Json(serde_json::json!({ "continue": true })))
+}
+
+async fn post_task_complete(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+    Json(payload): Json<CompleteRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    sqlx::query("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?")
+        .bind(&payload.status)
+        .bind(&now)
+        .bind(&task_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if payload.status == "failed" {
+        if let Some(err_msg) = payload.error {
+            state.task_streams.send(&task_id, Err(std::io::Error::new(std::io::ErrorKind::Other, err_msg))).await;
+        }
+    }
+
+    state.task_streams.unregister(&task_id).await;
+
+    Ok(StatusCode::OK)
+}
+

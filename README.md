@@ -87,6 +87,7 @@ All configuration is via environment variables (or a `.env` file):
 | `DAEMON_URL` | `http://host.docker.internal:7456` | URL of the Local Agent Daemon |
 | `PORT` | `8080` | Port for the Axum API Bridge |
 | `DAEMON_PORT` | `7456` | Port the Daemon listens on |
+| `BRIDGE_URL` | `http://127.0.0.1:8080` | URL the Daemon uses to call back the Bridge (set to your public domain when deploying remotely) |
 
 ### CLI Path Overrides
 

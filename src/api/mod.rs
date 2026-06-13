@@ -11,4 +11,6 @@ pub struct AppState {
     pub session_service: Arc<SessionService>,
     pub runtime_service: Arc<RuntimeService>,
     pub ws_registry: Arc<WebSocketRegistry>,
+    pub pool: sqlx::SqlitePool,
+    pub task_streams: Arc<crate::infrastructure::runtime::daemon_client::TaskStreamRegistry>,
 }
