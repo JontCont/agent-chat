@@ -152,18 +152,74 @@ fn extract_response(raw_bytes: &[u8]) -> String {
     cleaned.trim().to_string()
 }
 
-pub fn spawn_run(session_id: String, prompt: String) -> impl Stream<Item = Result<String, std::io::Error>> + Send {
+fn check_executable(cmd: &str) -> bool {
+    let has_separator = cmd.contains('/') || (cfg!(windows) && cmd.contains('\\'));
+    if !has_separator {
+        if let Ok(path_val) = std::env::var("PATH") {
+            let extensions = if cfg!(windows) {
+                vec!["", ".exe", ".cmd", ".bat"]
+            } else {
+                vec![""]
+            };
+            for dir in std::env::split_paths(&path_val) {
+                for ext in &extensions {
+                    let mut file_path = dir.join(cmd);
+                    if !ext.is_empty() {
+                        if let Some(name) = file_path.file_name().and_then(|n| n.to_str()) {
+                            file_path.set_file_name(format!("{}{}", name, ext));
+                        }
+                    }
+                    if file_path.is_file() {
+                        return true;
+                    }
+                }
+            }
+        }
+    } else {
+        let path = std::path::Path::new(cmd);
+        if path.is_file() {
+            return true;
+        }
+        if cfg!(windows) {
+            let extensions = vec![".exe", ".cmd", ".bat"];
+            for ext in extensions {
+                let mut path_ext = PathBuf::from(cmd);
+                if let Some(name) = path_ext.file_name().and_then(|n| n.to_str()) {
+                    path_ext.set_file_name(format!("{}{}", name, ext));
+                }
+                if path_ext.is_file() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn spawn_run(session_id: String, prompt: String, active_cli: String) -> impl Stream<Item = Result<String, std::io::Error>> + Send {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
     
     tokio::spawn(async move {
-        let agy_cmd = std::env::var("AGY_CLI_PATH").unwrap_or_else(|_| "agy".to_string());
-        info!("Spawning child process for session {}: {} --print '{}'", session_id, agy_cmd, prompt);
+        let cli_cmd = match active_cli.as_str() {
+            "openai" => std::env::var("OPENAI_CLI_PATH").unwrap_or_else(|_| "openai".to_string()),
+            "copilot" => std::env::var("COPILOT_CLI_PATH").unwrap_or_else(|_| "copilot".to_string()),
+            "claude" => std::env::var("CLAUDE_CLI_PATH").unwrap_or_else(|_| "claude".to_string()),
+            _ => std::env::var("AGY_CLI_PATH").unwrap_or_else(|_| "agy".to_string()),
+        };
+        info!("Spawning child process for session {}: {} --print '{}' (Active CLI: {})", session_id, cli_cmd, prompt, active_cli);
         
         // On Windows, agy writes directly to the console device (CONOUT$),
         // bypassing piped stdout entirely. We use `conhost.exe --headless`
         // to create a headless pseudo-console that captures this output.
         // On non-Windows, we spawn agy directly with piped stdout.
-        let spawn_result = spawn_agy_command(&agy_cmd, &prompt);
+        let spawn_result = if check_executable(&cli_cmd) {
+            spawn_agy_command(&cli_cmd, &prompt)
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Executable '{}' not found in PATH or disk", cli_cmd),
+            ))
+        };
 
         match spawn_result {
             Ok(mut child) => {
@@ -237,7 +293,7 @@ pub fn spawn_run(session_id: String, prompt: String) -> impl Stream<Item = Resul
                          You asked: '{}'\n\
                          The Antigravity CLI could not be spawned (Executable: '{}').\n\
                          Decoupled architecture is verified! Streaming is active.",
-                        prompt, agy_cmd
+                        prompt, cli_cmd
                     )
                 };
 
@@ -302,4 +358,27 @@ fn spawn_agy_command(agy_cmd: &str, prompt: &str) -> std::io::Result<tokio::proc
             .spawn()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+
+    #[tokio::test]
+    async fn test_spawn_run_fallback_openai() {
+        std::env::set_var("OPENAI_CLI_PATH", "nonexistent_openai_cli_path_xyz");
+        // Since 'openai' executable doesn't exist, it should trigger fallback mock stream
+        let mut stream = spawn_run("session_openai".to_string(), "hello".to_string(), "openai".to_string());
+        
+        let mut lines = Vec::new();
+        while let Some(res) = stream.next().await {
+            lines.push(res.unwrap());
+        }
+
+        let full_response = lines.join("\n");
+        assert!(full_response.contains("openai"));
+        assert!(full_response.contains("mock response"));
+    }
+}
+
 

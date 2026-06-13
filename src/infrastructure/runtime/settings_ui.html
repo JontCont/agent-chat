@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daemon Settings - Local Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(22, 28, 45, 0.6);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --primary: #5c62ec;
+            --primary-hover: #4b51d7;
+            --primary-glow: rgba(92, 98, 236, 0.4);
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.2);
+            --error: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(92, 98, 236, 0.1) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.06) 0%, transparent 40%);
+            padding: 20px;
+        }
+
+        .settings-container {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .settings-header {
+            margin-bottom: 32px;
+            text-align: center;
+        }
+
+        .settings-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #f3f4f6 0%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .settings-header p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 28px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 10px;
+            color: var(--text-color);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .select-wrapper {
+            position: relative;
+        }
+
+        select {
+            width: 100%;
+            background: rgba(10, 12, 22, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: var(--text-color);
+            font-family: inherit;
+            font-size: 16px;
+            appearance: none;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px var(--primary-glow);
+        }
+
+        .select-wrapper::after {
+            content: "";
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid var(--text-muted);
+            pointer-events: none;
+            transition: transform 0.3s ease;
+        }
+
+        select:focus + ::after {
+            transform: translateY(-50%) rotate(180deg);
+        }
+
+        .btn-save {
+            width: 100%;
+            background: var(--primary);
+            color: #ffffff;
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(92, 98, 236, 0.3);
+        }
+
+        .btn-save:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px var(--primary-glow);
+        }
+
+        .btn-save:active {
+            transform: translateY(0);
+        }
+
+        .toast {
+            position: absolute;
+            bottom: 24px;
+            left: 24px;
+            right: 24px;
+            background: rgba(16, 185, 129, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 10px 25px var(--success-glow);
+            transform: translateY(150%);
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            font-weight: 500;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast-error {
+            background: rgba(239, 68, 68, 0.9);
+        }
+
+        .icon {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        .badge {
+            background: rgba(92, 98, 236, 0.15);
+            color: #a5b4fc;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <header class="settings-header">
+            <h1>Daemon Settings</h1>
+            <p>Configure Local AI Agent CLI execution</p>
+        </header>
+
+        <div class="form-group">
+            <label for="cli-select">Active CLI Environment <span class="badge">Host Execution</span></label>
+            <div class="select-wrapper">
+                <select id="cli-select">
+                    <option value="agy">Antigravity (Default)</option>
+                    <option value="openai">OpenAI CLI</option>
+                    <option value="copilot">GitHub Copilot CLI</option>
+                    <option value="claude">Claude CLI</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn-save" id="btn-save">Save Settings</button>
+
+        <div class="toast" id="toast">
+            <svg class="icon" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+            <span id="toast-message">Settings saved successfully!</span>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const cliSelect = document.getElementById('cli-select');
+            const btnSave = document.getElementById('btn-save');
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toast-message');
+
+            // Load settings on load
+            fetch('/local/settings')
+                .then(res => {
+                    if (!res.ok) throw new Error();
+                    return res.json();
+                })
+                .then(data => {
+                    if (data && data.active_cli) {
+                        cliSelect.value = data.active_cli;
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to load settings:', err);
+                    showToast('Failed to load settings from Daemon', true);
+                });
+
+            // Save settings on click
+            btnSave.addEventListener('click', () => {
+                const active_cli = cliSelect.value;
+                btnSave.disabled = true;
+                btnSave.innerText = 'Saving...';
+
+                fetch('/local/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ active_cli })
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error();
+                    showToast('Settings saved successfully!', false);
+                })
+                .catch(err => {
+                    console.error('Failed to save settings:', err);
+                    showToast('Failed to save settings to Daemon', true);
+                })
+                .finally(() => {
+                    btnSave.disabled = false;
+                    btnSave.innerText = 'Save Settings';
+                });
+            });
+
+            function showToast(message, isError) {
+                toastMessage.textContent = message;
+                if (isError) {
+                    toast.classList.add('toast-error');
+                } else {
+                    toast.classList.remove('toast-error');
+                }
+                toast.classList.add('show');
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+        });
+    </script>
+</body>
+</html>
