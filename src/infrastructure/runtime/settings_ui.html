@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daemon Settings - Local Agent</title>
+    <title>Daemon Settings & Human Intervention - Local Agent</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -50,7 +50,7 @@
             border-radius: 24px;
             padding: 40px;
             width: 100%;
-            max-width: 480px;
+            max-width: 880px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
             position: relative;
             overflow: hidden;
@@ -81,18 +81,65 @@
             font-size: 14px;
         }
 
+        /* Layout content split */
+        .settings-content {
+            display: flex;
+            gap: 40px;
+            margin-top: 24px;
+        }
+
+        .settings-column-left {
+            width: 340px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+            padding-right: 40px;
+        }
+
+        .settings-column-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        @media (max-width: 768px) {
+            .settings-content {
+                flex-direction: column;
+                gap: 32px;
+            }
+            .settings-column-left {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+                padding-right: 0;
+                padding-bottom: 32px;
+            }
+        }
+
         .form-group {
-            margin-bottom: 28px;
+            margin-bottom: 24px;
         }
 
         .form-group label {
             display: block;
-            font-size: 14px;
-            font-weight: 500;
+            font-size: 13px;
+            font-weight: 600;
             margin-bottom: 10px;
             color: var(--text-color);
             letter-spacing: 0.5px;
             text-transform: uppercase;
+        }
+
+        .select-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .flex-1 {
+            flex: 1;
         }
 
         .select-wrapper {
@@ -107,7 +154,7 @@
             padding: 14px 16px;
             color: var(--text-color);
             font-family: inherit;
-            font-size: 16px;
+            font-size: 15px;
             appearance: none;
             outline: none;
             cursor: pointer;
@@ -136,6 +183,26 @@
             transform: translateY(-50%) rotate(180deg);
         }
 
+        .btn-icon {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            border-radius: 12px;
+            width: 48px;
+            height: 48px;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-icon:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--primary);
+        }
+
         .btn-save {
             width: 100%;
             background: var(--primary);
@@ -144,7 +211,7 @@
             border-radius: 12px;
             padding: 14px;
             font-family: inherit;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -153,7 +220,7 @@
             box-shadow: 0 4px 12px rgba(92, 98, 236, 0.3);
         }
 
-        .btn-save:hover {
+        .btn-save:hover:not(:disabled) {
             background: var(--primary-hover);
             transform: translateY(-2px);
             box-shadow: 0 6px 20px var(--primary-glow);
@@ -161,6 +228,116 @@
 
         .btn-save:active {
             transform: translateY(0);
+        }
+
+        .btn-save:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Override style */
+        .btn-override {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+            margin-top: 12px;
+        }
+
+        .btn-override:hover:not(:disabled) {
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5);
+        }
+
+        /* Chat Log Viewer */
+        .chat-log-viewer {
+            background: rgba(10, 12, 22, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            height: 240px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .chat-log-placeholder {
+            color: var(--text-muted);
+            text-align: center;
+            margin: auto;
+            font-size: 14px;
+        }
+
+        .log-bubble {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
+        .log-bubble.user {
+            align-self: flex-end;
+            background: rgba(92, 98, 236, 0.2);
+            border: 1px solid rgba(92, 98, 236, 0.3);
+            color: #e0e7ff;
+        }
+
+        .log-bubble.model {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+        }
+
+        textarea {
+            width: 100%;
+            background: rgba(10, 12, 22, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: var(--text-color);
+            font-family: inherit;
+            font-size: 15px;
+            outline: none;
+            resize: none;
+            transition: all 0.3s ease;
+        }
+
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px var(--primary-glow);
+        }
+
+        /* Tags and Indicators */
+        .badge {
+            background: rgba(92, 98, 236, 0.15);
+            color: #a5b4fc;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        .tag-intervention {
+            background: rgba(245, 158, 11, 0.15);
+            color: #f59e0b;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 12px;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.9; }
+            50% { transform: scale(1.02); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.9; }
         }
 
         .toast {
@@ -181,6 +358,7 @@
             opacity: 0;
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             font-weight: 500;
+            z-index: 100;
         }
 
         .toast.show {
@@ -197,39 +375,87 @@
             height: 20px;
             fill: currentColor;
         }
-
-        .badge {
-            background: rgba(92, 98, 236, 0.15);
-            color: #a5b4fc;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-left: 8px;
-            vertical-align: middle;
-        }
     </style>
 </head>
 <body>
     <div class="settings-container">
         <header class="settings-header">
-            <h1>Daemon Settings</h1>
-            <p>Configure Local AI Agent CLI execution</p>
+            <h1>Daemon Settings & Human Intervention</h1>
+            <p>Configure CLI Execution Path & Intercept Conversation Streams</p>
         </header>
 
-        <div class="form-group">
-            <label for="cli-select">Active CLI Environment <span class="badge">Host Execution</span></label>
-            <div class="select-wrapper">
-                <select id="cli-select">
-                    <option value="agy">Antigravity (Default)</option>
-                    <option value="openai">OpenAI CLI</option>
-                    <option value="copilot">GitHub Copilot CLI</option>
-                    <option value="claude">Claude CLI</option>
-                </select>
+        <div class="settings-content">
+            <!-- Left Column: Daemon Settings -->
+            <div class="settings-column-left">
+                <div class="form-group">
+                    <label for="cli-select">Active CLI Environment <span class="badge">Host Execution</span></label>
+                    <div class="select-wrapper">
+                        <select id="cli-select">
+                            <option value="agy">Antigravity (Default)</option>
+                            <option value="openai">OpenAI CLI</option>
+                            <option value="copilot">GitHub Copilot CLI</option>
+                            <option value="claude">Claude CLI</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button class="btn-save" id="btn-save">Save Settings</button>
+            </div>
+
+            <!-- Right Column: Human Operator Intervention -->
+            <div class="settings-column-right">
+                <div class="form-group">
+                    <label for="session-select">Select Active Session</label>
+                    <div class="select-row">
+                        <div class="select-wrapper flex-1">
+                            <select id="session-select">
+                                <option value="">-- No Active Sessions --</option>
+                            </select>
+                        </div>
+                        <button class="btn-icon" id="btn-refresh-sessions" title="Refresh Sessions">&#8635;</button>
+                    </div>
+                </div>
+
+                <div id="intervention-status" style="display: none;">
+                    <span class="tag-intervention">Human Operator Override Open</span>
+                </div>
+
+                <div class="chat-log-viewer" id="chat-log-viewer">
+                    <div class="chat-log-placeholder">Select a session to view conversation logs.</div>
+                </div>
+
+                <div class="override-form" id="override-form" style="display: none;">
+                    <div id="human-active-panel" style="display: none;">
+                        <div class="form-group" style="margin-top: 16px;">
+                            <label for="override-input">Manual Response Override</label>
+                            
+                            <!-- Attachment Preview -->
+                            <div id="operator-attachment-preview-container" style="display: none; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <img id="operator-attachment-preview" src="" style="max-height: 80px; border-radius: 8px; border: 1px solid var(--border-color);">
+                                <button id="btn-operator-remove-attachment" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px;">Remove</button>
+                            </div>
+
+                            <div style="display: flex; gap: 8px; align-items: flex-end;">
+                                <div style="flex: 1;">
+                                    <textarea id="override-input" placeholder="Type operator override response here..." rows="3"></textarea>
+                                </div>
+                                <button id="btn-operator-attach" class="btn-icon" style="height: 48px; width: 48px; border-radius: 12px; margin-bottom: 0; padding: 0; font-size: 20px; display: flex; align-items: center; justify-content: center;" title="Attach Image">📎</button>
+                            </div>
+                            <input type="file" id="operator-file-input" accept="image/*" style="display: none;">
+                        </div>
+                        <button class="btn-save btn-override" id="btn-send-override">Send Override Response</button>
+                        <button class="btn-save" id="btn-restore-ai" style="margin-top: 8px; background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); box-shadow: none;">切回AI模式</button>
+                    </div>
+
+                    <div id="ai-active-panel" style="display: none; margin-top: 16px;">
+                        <div style="background: rgba(92, 98, 236, 0.1); border: 1px solid rgba(92, 98, 236, 0.2); border-radius: 12px; padding: 16px; text-align: center; color: var(--text-muted);">
+                            <p style="margin-bottom: 12px;">AI 機器人模式運行中，客服無法手動發言。</p>
+                            <button class="btn-save" id="btn-transfer-human" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); box-shadow: none;">轉接人工客服</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-
-        <button class="btn-save" id="btn-save">Save Settings</button>
 
         <div class="toast" id="toast">
             <svg class="icon" viewBox="0 0 24 24">
@@ -243,24 +469,146 @@
         document.addEventListener('DOMContentLoaded', () => {
             const cliSelect = document.getElementById('cli-select');
             const btnSave = document.getElementById('btn-save');
+            const sessionSelect = document.getElementById('session-select');
+            const btnRefreshSessions = document.getElementById('btn-refresh-sessions');
+            const chatLogViewer = document.getElementById('chat-log-viewer');
+            const interventionStatus = document.getElementById('intervention-status');
+            const overrideForm = document.getElementById('override-form');
+            const overrideInput = document.getElementById('override-input');
+            const btnSendOverride = document.getElementById('btn-send-override');
             const toast = document.getElementById('toast');
             const toastMessage = document.getElementById('toast-message');
 
+            // Operator attachments & toggle controls bindings
+            const btnOperatorAttach = document.getElementById('btn-operator-attach');
+            const operatorFileInput = document.getElementById('operator-file-input');
+            const operatorAttachmentPreviewContainer = document.getElementById('operator-attachment-preview-container');
+            const operatorAttachmentPreview = document.getElementById('operator-attachment-preview');
+            const btnOperatorRemoveAttachment = document.getElementById('btn-operator-remove-attachment');
+            const btnRestoreAi = document.getElementById('btn-restore-ai');
+            const btnTransferHuman = document.getElementById('btn-transfer-human');
+            const humanActivePanel = document.getElementById('human-active-panel');
+            const aiActivePanel = document.getElementById('ai-active-panel');
+
+            let activeSessionsData = [];
+            let operatorSelectedAttachment = null;
+
             // Load settings on load
-            fetch('/local/settings')
+            loadSettings();
+            // Load sessions list on load
+            loadSessions();
+
+            // Refresh sessions list on click
+            btnRefreshSessions.addEventListener('click', loadSessions);
+
+            // Operator Attachment Events
+            btnOperatorAttach.addEventListener('click', () => {
+                operatorFileInput.click();
+            });
+
+            operatorFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                if (file.size > 5 * 1024 * 1024) {
+                    showToast("Image file size must be less than 5MB.", true);
+                    operatorFileInput.value = '';
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const base64Data = event.target.result;
+                    operatorSelectedAttachment = {
+                        mime_type: file.type,
+                        data: base64Data
+                    };
+                    operatorAttachmentPreview.src = base64Data;
+                    operatorAttachmentPreviewContainer.style.display = 'flex';
+                };
+                reader.readAsDataURL(file);
+            });
+
+            btnOperatorRemoveAttachment.addEventListener('click', () => {
+                clearOperatorAttachment();
+            });
+
+            function clearOperatorAttachment() {
+                operatorSelectedAttachment = null;
+                operatorFileInput.value = '';
+                operatorAttachmentPreview.src = '';
+                operatorAttachmentPreviewContainer.style.display = 'none';
+            }
+
+            // Sync action: 切回AI
+            btnRestoreAi.addEventListener('click', () => {
+                const sessionId = sessionSelect.value;
+                if (!sessionId) return;
+
+                btnRestoreAi.disabled = true;
+                btnRestoreAi.innerText = 'Restoring...';
+
+                fetch(`/local/sessions/${sessionId}/ready`, {
+                    method: 'POST'
+                })
                 .then(res => {
                     if (!res.ok) throw new Error();
-                    return res.json();
-                })
-                .then(data => {
-                    if (data && data.active_cli) {
-                        cliSelect.value = data.active_cli;
-                    }
+                    showToast('Successfully restored session to AI mode!', false);
+                    loadSessions();
                 })
                 .catch(err => {
-                    console.error('Failed to load settings:', err);
-                    showToast('Failed to load settings from Daemon', true);
+                    console.error('Failed to restore session to AI:', err);
+                    showToast('Failed to restore session to AI mode', true);
+                })
+                .finally(() => {
+                    btnRestoreAi.disabled = false;
+                    btnRestoreAi.innerText = '切回AI模式';
                 });
+            });
+
+            // Sync action: 轉人工
+            btnTransferHuman.addEventListener('click', () => {
+                const sessionId = sessionSelect.value;
+                if (!sessionId) return;
+
+                btnTransferHuman.disabled = true;
+                btnTransferHuman.innerText = 'Transferring...';
+
+                fetch(`/local/sessions/${sessionId}/human`, {
+                    method: 'POST'
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error();
+                    showToast('Successfully transferred session to Human mode!', false);
+                    loadSessions();
+                })
+                .catch(err => {
+                    console.error('Failed to transfer session to human:', err);
+                    showToast('Failed to transfer session to Human mode', true);
+                })
+                .finally(() => {
+                    btnTransferHuman.disabled = false;
+                    btnTransferHuman.innerText = '轉接人工客服';
+                });
+            });
+
+            // Fetch settings
+            function loadSettings() {
+                fetch('/local/settings')
+                    .then(res => {
+                        if (!res.ok) throw new Error();
+                        return res.json();
+                    })
+                    .then(data => {
+                        if (data && data.active_cli) {
+                            cliSelect.value = data.active_cli;
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Failed to load settings:', err);
+                        showToast('Failed to load settings from Daemon', true);
+                    });
+            }
 
             // Save settings on click
             btnSave.addEventListener('click', () => {
@@ -288,6 +636,199 @@
                     btnSave.innerText = 'Save Settings';
                 });
             });
+
+            // Fetch and update active sessions list
+            function loadSessions() {
+                fetch('/local/sessions')
+                    .then(res => {
+                        if (!res.ok) throw new Error();
+                        return res.json();
+                    })
+                    .then(data => {
+                        activeSessionsData = data || [];
+                        updateSessionsDropdown();
+                    })
+                    .catch(err => {
+                        console.error('Failed to load active sessions:', err);
+                        showToast('Failed to fetch active sessions', true);
+                    });
+            }
+
+            function updateSessionsDropdown() {
+                const currentSelected = sessionSelect.value;
+                sessionSelect.innerHTML = '<option value="">-- Select Active Session --</option>';
+                
+                if (activeSessionsData.length === 0) {
+                    sessionSelect.innerHTML = '<option value="">-- No Active Sessions --</option>';
+                    clearChatViewer('No active sessions found.');
+                    hideOverridePanel();
+                    return;
+                }
+
+                activeSessionsData.forEach(session => {
+                    const option = document.createElement('option');
+                    option.value = session.id;
+                    const suffix = session.can_override ? ' [INTERCEPTIBLE]' : '';
+                    option.textContent = session.id.substring(0, 18) + '...' + suffix;
+                    sessionSelect.appendChild(option);
+                });
+
+                // Re-select if still exists
+                if (activeSessionsData.some(s => s.id === currentSelected)) {
+                    sessionSelect.value = currentSelected;
+                    loadHistory(currentSelected);
+                } else {
+                    clearChatViewer('Select a session from the list.');
+                    hideOverridePanel();
+                }
+            }
+
+            // Select active session change event
+            sessionSelect.addEventListener('change', (e) => {
+                const sessionId = e.target.value;
+                if (!sessionId) {
+                    clearChatViewer('Select a session from the list.');
+                    hideOverridePanel();
+                } else {
+                    loadHistory(sessionId);
+                }
+            });
+
+            // Load session history
+            function loadHistory(sessionId) {
+                chatLogViewer.innerHTML = '<div class="chat-log-placeholder">Loading history...</div>';
+                
+                fetch(`/local/sessions/${sessionId}/history`)
+                    .then(res => {
+                        if (!res.ok) throw new Error();
+                        return res.json();
+                    })
+                    .then(history => {
+                        renderHistory(history);
+                        
+                        // Check if session can be overridden
+                        const sessionInfo = activeSessionsData.find(s => s.id === sessionId);
+                        showOverridePanel(sessionInfo);
+                    })
+                    .catch(err => {
+                        console.error('Failed to load session history:', err);
+                        clearChatViewer('Failed to load session history.');
+                        hideOverridePanel();
+                    });
+            }
+
+            function renderHistory(history) {
+                if (!history || history.length === 0) {
+                    clearChatViewer('Conversation logs are empty.');
+                    return;
+                }
+
+                chatLogViewer.innerHTML = '';
+                history.forEach(msg => {
+                    const bubble = document.createElement('div');
+                    bubble.className = `log-bubble ${msg.role}`;
+                    
+                    // Simple bold text & newline formatting
+                    const formattedContent = msg.content
+                         .replace(/&/g, '&amp;')
+                         .replace(/</g, '&lt;')
+                         .replace(/>/g, '&gt;')
+                         .replace(/\n/g, '<br>');
+                    
+                    // Render image attachments if present
+                    let imageHtml = '';
+                    if (msg.attachments && msg.attachments.length > 0) {
+                        msg.attachments.forEach(att => {
+                            if (att.mime_type.startsWith('image/')) {
+                                imageHtml += `<img src="${att.data}" style="max-width: 100%; border-radius: 8px; margin-bottom: 8px; display: block;">`;
+                            }
+                        });
+                    }
+                    
+                    bubble.innerHTML = `${imageHtml}<strong>${msg.role === 'user' ? 'Client' : 'Model'}:</strong> ${formattedContent}`;
+                    chatLogViewer.appendChild(bubble);
+                });
+                
+                // Scroll to bottom
+                chatLogViewer.scrollTop = chatLogViewer.scrollHeight;
+            }
+
+            // Send manual override response on click
+            btnSendOverride.addEventListener('click', () => {
+                const sessionId = sessionSelect.value;
+                const overrideText = overrideInput.value.trim();
+                if (!sessionId || !overrideText) return;
+
+                btnSendOverride.disabled = true;
+                btnSendOverride.innerText = 'Sending Override...';
+
+                fetch(`/local/sessions/${sessionId}/manual-response`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        content: overrideText,
+                        attachments: operatorSelectedAttachment ? [operatorSelectedAttachment] : null
+                    })
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error();
+                    return res.json();
+                })
+                .then(data => {
+                    if (data && data.streamed) {
+                        showToast('Manual response overridden and streamed to client!', false);
+                    } else {
+                        showToast('Response sent successfully to client!', false);
+                    }
+                    overrideInput.value = '';
+                    clearOperatorAttachment();
+                    
+                    // Re-query logs and update sessions dropdown
+                    loadHistory(sessionId);
+                    loadSessions();
+                })
+                .catch(err => {
+                    console.error('Failed to submit manual override:', err);
+                    showToast('Failed to override response', true);
+                })
+                .finally(() => {
+                    btnSendOverride.disabled = false;
+                    btnSendOverride.innerText = 'Send Override Response';
+                });
+            });
+
+            function showOverridePanel(sessionInfo) {
+                if (!sessionInfo) {
+                    hideOverridePanel();
+                    return;
+                }
+                overrideForm.style.display = 'block';
+
+                if (sessionInfo.is_human) {
+                    interventionStatus.innerHTML = '<span class="tag-intervention">Human Operator Override Open</span>';
+                    interventionStatus.style.display = 'block';
+                    humanActivePanel.style.display = 'block';
+                    aiActivePanel.style.display = 'none';
+                } else {
+                    interventionStatus.innerHTML = '<span class="tag-intervention" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">AI Mode Active (Auto Response)</span>';
+                    interventionStatus.style.display = 'block';
+                    humanActivePanel.style.display = 'none';
+                    aiActivePanel.style.display = 'block';
+                }
+            }
+
+            function hideOverridePanel() {
+                interventionStatus.style.display = 'none';
+                overrideForm.style.display = 'none';
+                humanActivePanel.style.display = 'none';
+                aiActivePanel.style.display = 'none';
+            }
+
+            function clearChatViewer(msg) {
+                chatLogViewer.innerHTML = `<div class="chat-log-placeholder">${msg}</div>`;
+            }
 
             function showToast(message, isError) {
                 toastMessage.textContent = message;

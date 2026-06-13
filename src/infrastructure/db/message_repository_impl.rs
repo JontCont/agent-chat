@@ -20,9 +20,10 @@ impl MessageRepository for SqliteMessageRepository {
         let pool = self.pool.clone();
         let message = message.clone();
         Box::pin(async move {
+            let attachments_json = message.attachments.as_ref().and_then(|a| serde_json::to_string(a).ok());
             sqlx::query(
-                "INSERT INTO messages (id, session_id, role, content, created_at, is_final) 
-                 VALUES (?, ?, ?, ?, ?, ?)"
+                "INSERT INTO messages (id, session_id, role, content, created_at, is_final, attachments) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(&message.id)
             .bind(&message.session_id)
@@ -30,6 +31,7 @@ impl MessageRepository for SqliteMessageRepository {
             .bind(&message.content)
             .bind(message.created_at.to_rfc3339())
             .bind(if message.is_final { 1 } else { 0 })
+            .bind(attachments_json)
             .execute(&pool)
             .await?;
             Ok(())
@@ -41,7 +43,7 @@ impl MessageRepository for SqliteMessageRepository {
         let session_id = session_id.to_string();
         Box::pin(async move {
             let rows = sqlx::query(
-                "SELECT id, session_id, role, content, created_at, is_final 
+                "SELECT id, session_id, role, content, created_at, is_final, attachments 
                  FROM messages WHERE session_id = ? ORDER BY created_at ASC"
             )
             .bind(session_id)
@@ -56,10 +58,13 @@ impl MessageRepository for SqliteMessageRepository {
                 let content: String = r.get("content");
                 let created_at_str: String = r.get("created_at");
                 let is_final_int: i32 = r.get("is_final");
+                let attachments_str: Option<String> = r.get("attachments");
 
                 let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                    .unwrap_or_default()
-                    .with_timezone(&chrono::Utc);
+                     .unwrap_or_default()
+                     .with_timezone(&chrono::Utc);
+
+                let attachments = attachments_str.and_then(|s| serde_json::from_str(&s).ok());
 
                 messages.push(Message {
                     id,
@@ -68,6 +73,7 @@ impl MessageRepository for SqliteMessageRepository {
                     content,
                     created_at,
                     is_final: is_final_int != 0,
+                    attachments,
                 });
             }
 

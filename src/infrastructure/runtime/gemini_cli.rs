@@ -1,7 +1,7 @@
 use axum::{
     extract::Path,
     http::StatusCode,
-    response::sse::{Event, Sse},
+    response::{sse::{Event, Sse}, IntoResponse},
     routing::{post, delete, get},
     Json, Router,
 };
@@ -10,10 +10,19 @@ use std::convert::Infallible;
 use serde::{Serialize, Deserialize};
 use tracing::{info, error};
 use crate::infrastructure::runtime::daemon_settings::DaemonSettings;
+use crate::application::models::message::Attachment;
 
 #[derive(Deserialize)]
 pub struct DaemonMessageRequest {
     pub content: String,
+    pub attachments: Option<Vec<Attachment>>,
+    pub active_cli: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ManualResponseRequest {
+    pub content: String,
+    pub attachments: Option<Vec<Attachment>>,
 }
 
 pub fn router() -> Router {
@@ -21,6 +30,13 @@ pub fn router() -> Router {
         .route("/local/sessions/:id/messages", post(handle_messages))
         .route("/local/sessions/:id/cancel", post(handle_cancel))
         .route("/local/sessions/:id", delete(handle_delete))
+        .route("/local/sessions/:id/history", get(get_session_history))
+        .route("/local/sessions/:id/manual-response", post(post_manual_response))
+        .route("/local/sessions/:id/human", post(handle_set_human))
+        .route("/local/sessions/:id/ready", post(handle_set_ready))
+        .route("/local/sessions/:id/sync-human", post(handle_sync_human))
+        .route("/local/sessions/:id/sync-ready", post(handle_sync_ready))
+        .route("/local/sessions", get(get_active_sessions))
         .route("/local/settings", post(post_settings).get(get_settings))
         .route("/", get(serve_settings_ui))
 }
@@ -32,9 +48,12 @@ async fn handle_messages(
     info!("Daemon handling message run for session {}", id);
     let (sse_tx, sse_rx) = tokio::sync::mpsc::channel(100);
     
+    let settings = DaemonSettings::load();
+    let active_cli = payload.active_cli.unwrap_or(settings.active_cli);
+    let stream = crate::infrastructure::runtime::process_manager::spawn_run(id.clone(), payload.content, payload.attachments, active_cli);
+
     tokio::spawn(async move {
-        let settings = DaemonSettings::load();
-        let mut stream = crate::infrastructure::runtime::process_manager::spawn_run(id, payload.content, settings.active_cli);
+        let mut stream = stream;
         let mut accumulated = String::new();
         
         while let Some(res) = stream.next().await {
@@ -121,6 +140,176 @@ async fn serve_settings_ui() -> impl axum::response::IntoResponse {
     axum::response::Html(html)
 }
 
+async fn get_active_sessions() -> impl axum::response::IntoResponse {
+    let registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+    let list: Vec<serde_json::Value> = registry
+        .iter()
+        .map(|(id, session)| {
+            serde_json::json!({
+                "id": id,
+                "can_override": session.is_human || session.manual_tx.is_some(),
+                "is_human": session.is_human
+            })
+        })
+        .collect();
+    (StatusCode::OK, Json(list)).into_response()
+}
+
+async fn get_session_history(Path(id): Path<String>) -> impl axum::response::IntoResponse {
+    let registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+    if let Some(session) = registry.get(&id) {
+        (StatusCode::OK, Json(session.history.clone())).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Session not found" }))).into_response()
+    }
+}
+
+async fn handle_set_human(Path(id): Path<String>) -> StatusCode {
+    info!("Setting session {} to human mode on Daemon", id);
+    {
+        let mut registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+        let session = registry.entry(id.clone()).or_insert_with(|| crate::infrastructure::runtime::process_manager::ActiveSession {
+            manual_tx: None,
+            history: Vec::new(),
+            is_human: true,
+        });
+        session.is_human = true;
+    }
+
+    // Forward to Bridge POST /sessions/:id/human
+    let bridge_port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let bridge_url = format!("http://127.0.0.1:{}/sessions/{}/human", bridge_port, id);
+    let client = reqwest::Client::new();
+    if let Err(e) = client.post(&bridge_url).send().await {
+        tracing::warn!("Failed to notify Bridge of human status from Daemon: {:?}", e);
+    }
+
+    StatusCode::OK
+}
+
+async fn handle_set_ready(Path(id): Path<String>) -> StatusCode {
+    info!("Setting session {} to ready (AI) mode on Daemon", id);
+    {
+        let mut registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+        if let Some(session) = registry.get_mut(&id) {
+            session.is_human = false;
+        }
+    }
+
+    // Forward to Bridge POST /sessions/:id/ready
+    let bridge_port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let bridge_url = format!("http://127.0.0.1:{}/sessions/{}/ready", bridge_port, id);
+    let client = reqwest::Client::new();
+    if let Err(e) = client.post(&bridge_url).send().await {
+        tracing::warn!("Failed to notify Bridge of ready status from Daemon: {:?}", e);
+    }
+
+    StatusCode::OK
+}
+
+async fn handle_sync_human(Path(id): Path<String>) -> StatusCode {
+    info!("Syncing session {} to human mode from Bridge", id);
+    let mut registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+    let session = registry.entry(id).or_insert_with(|| crate::infrastructure::runtime::process_manager::ActiveSession {
+        manual_tx: None,
+        history: Vec::new(),
+        is_human: true,
+    });
+    session.is_human = true;
+    StatusCode::OK
+}
+
+async fn handle_sync_ready(Path(id): Path<String>) -> StatusCode {
+    info!("Syncing session {} to ready (AI) mode from Bridge", id);
+    let mut registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+    if let Some(session) = registry.get_mut(&id) {
+        session.is_human = false;
+    }
+    StatusCode::OK
+}
+
+async fn post_manual_response(
+    Path(id): Path<String>,
+    Json(payload): Json<ManualResponseRequest>,
+) -> axum::response::Response {
+    // Check if session is in human mode
+    let is_human = {
+        let registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+        registry.get(&id).map(|session| session.is_human).unwrap_or(false)
+    };
+
+    if !is_human {
+        return (StatusCode::BAD_REQUEST, "Session is not in human intervention mode. Input is locked during AI mode.".to_string()).into_response();
+    }
+
+    // 1. Clone the sender out of the registry lock FIRST
+    let manual_tx = {
+        let registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+        registry.get(&id).and_then(|session| session.manual_tx.clone())
+    };
+
+    // 2. Terminate running CLI process if any
+    if let Some(pid) = crate::infrastructure::runtime::process_manager::get_pid(&id) {
+        let _ = crate::infrastructure::runtime::process_manager::terminate_process_tree(pid).await;
+        crate::infrastructure::runtime::process_manager::delete_pid(&id);
+    }
+
+    let is_active = manual_tx.is_some();
+
+    // 3. Send manual response lines
+    if let Some(tx) = manual_tx {
+        for line in payload.content.lines() {
+            if tx.send(Ok(line.to_string())).await.is_err() {
+                break;
+            }
+        }
+    }
+
+    // 4. Update session history and clear active sender
+    {
+        let mut registry = crate::infrastructure::runtime::process_manager::get_sessions_registry().lock().unwrap();
+        if let Some(session) = registry.get_mut(&id) {
+            session.history.push(crate::infrastructure::runtime::process_manager::DaemonMessage {
+                role: "model".to_string(),
+                content: payload.content.clone(),
+                attachments: payload.attachments.clone(),
+            });
+            session.manual_tx = None;
+        } else {
+            return (StatusCode::NOT_FOUND, "Session not found".to_string()).into_response();
+        }
+    }
+
+    // 5. Forward the operator response to the Bridge!
+    // Construct the URL to Bridge API: http://127.0.0.1:8080/sessions/{id}/operator-response
+    let bridge_port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let bridge_url = format!("http://127.0.0.1:{}/sessions/{}/operator-response", bridge_port, id);
+    info!("Forwarding operator override response to Bridge: {}", bridge_url);
+
+    let client = reqwest::Client::new();
+    let res = client.post(&bridge_url)
+        .json(&serde_json::json!({
+            "content": payload.content,
+            "attachments": payload.attachments
+        }))
+        .send()
+        .await;
+
+    match res {
+        Ok(resp) if resp.status().is_success() => {
+            info!("Successfully forwarded operator response to Bridge");
+        }
+        Ok(resp) => {
+            tracing::warn!("Bridge returned error status on operator-response forwarding: {}", resp.status());
+        }
+        Err(e) => {
+            tracing::warn!("Failed to forward operator response to Bridge (Bridge might be offline): {:?}", e);
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({ "streamed": is_active }))).into_response()
+}
+
 pub async fn run_daemon(port: u16) {
     let app = router();
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await.unwrap();
@@ -140,6 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_settings_routes() {
+        let _guard = crate::infrastructure::runtime::daemon_settings::TEST_MUTEX.lock().unwrap();
         let app = router();
 
         // 1. Test GET /local/settings
@@ -229,7 +419,82 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let html_content = String::from_utf8(body.to_vec()).unwrap();
-        assert!(html_content.contains("<title>Daemon Settings - Local Agent</title>"));
+        assert!(html_content.contains("<title>Daemon Settings & Human Intervention - Local Agent</title>"));
+    }
+
+    #[tokio::test]
+    async fn test_manual_response_and_history() {
+        let app = router();
+
+        // 1. First trigger spawn_run by calling POST /local/sessions/session_test/messages
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/local/sessions/session_test/messages")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"content": "hello_test", "active_cli": "human"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 2. Query GET /local/sessions/session_test/history
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/local/sessions/session_test/history")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.is_array());
+        assert_eq!(json[0].get("role").unwrap().as_str().unwrap(), "user");
+        assert_eq!(json[0].get("content").unwrap().as_str().unwrap(), "hello_test");
+
+        // 3. Post POST /local/sessions/session_test/manual-response
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/local/sessions/session_test/manual-response")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"content": "manual_override_response"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 4. Query history again to ensure it contains model/override message
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/local/sessions/session_test/history")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.as_array().unwrap().len(), 2);
+        assert_eq!(json[1].get("role").unwrap().as_str().unwrap(), "model");
+        assert_eq!(json[1].get("content").unwrap().as_str().unwrap(), "manual_override_response");
     }
 }
 

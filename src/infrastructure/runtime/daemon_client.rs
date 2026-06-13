@@ -1,4 +1,5 @@
 use crate::application::ports::runtime_gateway::RuntimeGateway;
+use crate::application::models::message::Attachment;
 use reqwest::Client;
 use futures_util::{Stream, StreamExt};
 use std::io;
@@ -21,16 +22,18 @@ impl DaemonClient {
 }
 
 impl RuntimeGateway for DaemonClient {
-    fn send_message(&self, session_id: &str, content: &str) -> Pin<Box<dyn Stream<Item = Result<String, io::Error>> + Send>> {
+    fn send_message(&self, session_id: &str, content: &str, attachments: Option<Vec<Attachment>>, active_cli: Option<String>) -> Pin<Box<dyn Stream<Item = Result<String, io::Error>> + Send>> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let url = format!("{}/local/sessions/{}/messages", self.daemon_url, session_id);
         let client = self.client.clone();
         let content = content.to_string();
+        let attachments = attachments.clone();
+        let active_cli = active_cli.clone();
 
         tokio::spawn(async move {
             info!("Sending prompt to Daemon endpoint: {}", url);
             let res = client.post(&url)
-                .json(&serde_json::json!({ "content": content }))
+                .json(&serde_json::json!({ "content": content, "attachments": attachments, "active_cli": active_cli }))
                 .send()
                 .await;
 
@@ -109,6 +112,46 @@ impl RuntimeGateway for DaemonClient {
                 }
                 Err(e) => {
                     error!("Failed to connect to Daemon for session delete: {:?}", e);
+                    Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
+                }
+            }
+        })
+    }
+
+    fn set_human_mode(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+        let url = format!("{}/local/sessions/{}/sync-human", self.daemon_url, session_id);
+        let client = self.client.clone();
+        Box::pin(async move {
+            info!("Sending set-human request to Daemon at: {}", url);
+            let res = client.post(&url).send().await;
+            match res {
+                Ok(resp) if resp.status().is_success() => Ok(()),
+                Ok(resp) => {
+                    error!("Daemon returned failure status on set-human: {}", resp.status());
+                    Err(io::Error::new(io::ErrorKind::Other, format!("Daemon returned error status: {}", resp.status())))
+                }
+                Err(e) => {
+                    error!("Failed to connect to Daemon for set-human: {:?}", e);
+                    Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
+                }
+            }
+        })
+    }
+
+    fn set_ready_mode(&self, session_id: &str) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+        let url = format!("{}/local/sessions/{}/sync-ready", self.daemon_url, session_id);
+        let client = self.client.clone();
+        Box::pin(async move {
+            info!("Sending set-ready request to Daemon at: {}", url);
+            let res = client.post(&url).send().await;
+            match res {
+                Ok(resp) if resp.status().is_success() => Ok(()),
+                Ok(resp) => {
+                    error!("Daemon returned failure status on set-ready: {}", resp.status());
+                    Err(io::Error::new(io::ErrorKind::Other, format!("Daemon returned error status: {}", resp.status())))
+                }
+                Err(e) => {
+                    error!("Failed to connect to Daemon for set-ready: {:?}", e);
                     Err(io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))
                 }
             }

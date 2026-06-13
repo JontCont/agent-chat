@@ -15,38 +15,53 @@ The system SHALL support creating a session, initializing it with a status of "s
 
 ---
 ### Requirement: Real-time Message Streaming
-The system SHALL support sending a prompt message to a session, spawning the configured CLI child process on the host via the Local Agent Daemon, and streaming tokens back via HTTP Server-Sent Events (SSE) which are then pushed to the WebSocket client.
+The system SHALL support sending a prompt message to a session with optional Base64 image attachments, decoding the Base64 images to local temporary files on the host, executing the CLI child process, and streaming tokens back via HTTP Server-Sent Events (SSE) which are then pushed to the WebSocket client.
 
-#### Scenario: Successful Prompt execution with SSE streaming
-- **WHEN** the user sends a POST request to `/sessions/session_123/messages` with a valid prompt, and connects to the WebSocket endpoint `/ws/session_123`
-- **THEN** the Local Agent Daemon SHALL spawn the configured CLI child process, pipe its stdout/stderr, stream delta events via HTTP SSE, and the Axum API SHALL forward those delta events to the WebSocket client as JSON frames
+#### Scenario: Successful Prompt execution with SSE streaming and image attachments
+- **WHEN** the user sends a POST request to `/sessions/session_123/messages` with a valid prompt and Base64-encoded image attachments, and connects to the WebSocket endpoint `/ws/session_123`
+- **THEN** the Local Agent Daemon SHALL decode the Base64 image data to a temporary file on the host machine, spawn the CLI child process passing the prompt and temporary file path, and stream the generated response back to the client
 
-##### Example: Stream Events
-- **GIVEN** a prompt message "Hello"
-- **WHEN** the configured CLI output contains "Hello!"
-- **THEN** the SSE stream SHALL yield:
-  | Event | Data | Notes |
-  | --- | --- | --- |
-  | `delta` | `{"text": "Hello"}` | First token chunk |
-  | `delta` | `{"text": "!"}` | Second token chunk |
-  | `done` | `{"text": "Hello!"}` | Final complete message |
+##### Example: Message Payload with Base64 Image
+- **WHEN** the user sends prompt "What is this?" with a PNG image:
+  ```json
+  {
+    "content": "What is this?",
+    "attachments": [
+      {
+        "mime_type": "image/png",
+        "data": "iVBORw0KGgoAAAANSUhEUgAA..."
+      }
+    ]
+  }
+  ```
+- **THEN** the daemon SHALL write it to a temporary file and pass it to the spawned CLI command.
 
 
 <!-- @trace
-source: add-daemon-settings-ui
+source: add-multimedia-and-human-intervention
 updated: 2026-06-13
 code:
-  - src/infrastructure/runtime/mod.rs
-  - src/infrastructure/runtime/process_manager.rs
-  - src/frontend/index.html
-  - src/frontend/style.css
-  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
-  - src/infrastructure/runtime/gemini_cli.rs
-  - src/infrastructure/runtime/daemon_settings.rs
   - src/frontend/index.js
-  - daemon_config.json
-  - Cargo.toml
+  - src/infrastructure/runtime/daemon_client.rs
   - src/infrastructure/runtime/settings_ui.html
+  - src/api/dto/message_dto.rs
+  - src/frontend/index.html
+  - src/infrastructure/runtime/daemon_settings.rs
+  - src/infrastructure/runtime/mod.rs
+  - src/application/models/session.rs
+  - src/application/services/runtime_service.rs
+  - src/infrastructure/runtime/gemini_cli.rs
+  - src/application/ports/runtime_gateway.rs
+  - src/frontend/style.css
+  - daemon_config.json
+  - src/infrastructure/db/message_repository_impl.rs
+  - src/infrastructure/runtime/process_manager.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/message.rs
+  - Cargo.toml
+  - src/api/routes/sessions.rs
+  - src/application/services/session_service.rs
+  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
 -->
 
 ---

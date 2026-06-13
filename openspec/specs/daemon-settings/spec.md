@@ -141,3 +141,112 @@ code:
   - Cargo.toml
   - src/infrastructure/runtime/settings_ui.html
 -->
+
+---
+### Requirement: Daemon Session History Viewer
+The Local Agent Daemon settings UI SHALL support retrieving and displaying the conversation history of active sessions from the Bridge.
+
+#### Scenario: Display conversation history
+- **WHEN** the local developer selects an active session on the settings UI page
+- **THEN** the system SHALL send a GET request to the Bridge to retrieve message history and render it in a chat log viewer on the settings page
+
+
+<!-- @trace
+source: add-multimedia-and-human-intervention
+updated: 2026-06-13
+code:
+  - src/frontend/index.js
+  - src/infrastructure/runtime/daemon_client.rs
+  - src/infrastructure/runtime/settings_ui.html
+  - src/api/dto/message_dto.rs
+  - src/frontend/index.html
+  - src/infrastructure/runtime/daemon_settings.rs
+  - src/infrastructure/runtime/mod.rs
+  - src/application/models/session.rs
+  - src/application/services/runtime_service.rs
+  - src/infrastructure/runtime/gemini_cli.rs
+  - src/application/ports/runtime_gateway.rs
+  - src/frontend/style.css
+  - daemon_config.json
+  - src/infrastructure/db/message_repository_impl.rs
+  - src/infrastructure/runtime/process_manager.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/message.rs
+  - Cargo.toml
+  - src/api/routes/sessions.rs
+  - src/application/services/session_service.rs
+  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
+-->
+
+---
+### Requirement: Human-in-the-loop Manual Response
+The Local Agent Daemon settings UI SHALL allow developers to type and send manual text responses to the client, which are streamed back to the Bridge as simulated CLI events.
+
+#### Scenario: Send manual response
+- **WHEN** the developer inputs a response and clicks the send button on the Daemon settings dashboard
+- **THEN** the Daemon SHALL send a POST request to `/local/sessions/{session_id}/manual-response` containing the text and optional image attachments, and forward it to the Bridge which streams/notifies the client.
+
+
+<!-- @trace
+source: add-multimedia-and-human-intervention
+updated: 2026-06-13
+code:
+  - src/frontend/index.js
+  - src/infrastructure/runtime/daemon_client.rs
+  - src/infrastructure/runtime/settings_ui.html
+  - src/api/dto/message_dto.rs
+  - src/frontend/index.html
+  - src/infrastructure/runtime/daemon_settings.rs
+  - src/infrastructure/runtime/mod.rs
+  - src/application/models/session.rs
+  - src/application/services/runtime_service.rs
+  - src/infrastructure/runtime/gemini_cli.rs
+  - src/application/ports/runtime_gateway.rs
+  - src/frontend/style.css
+  - daemon_config.json
+  - src/infrastructure/db/message_repository_impl.rs
+  - src/infrastructure/runtime/process_manager.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/message.rs
+  - Cargo.toml
+  - src/api/routes/sessions.rs
+  - src/application/services/session_service.rs
+  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
+-->
+
+---
+### Requirement: Operator Status Controls and Input Enforce
+The Daemon settings UI SHALL only enable manual intervention when the session status is in Human Support mode. If in AI mode, the inputs SHALL be hidden or disabled. Toggling to human mode or back to AI mode SHALL be supported.
+
+#### Scenario: Sync status and lock inputs
+- **WHEN** the session is in AI mode
+- **THEN** the Daemon settings UI SHALL display "AI Mode Active" and lock manual response forms. The operator can click "轉為人工客服" to force transition.
+- **WHEN** the session is in Human mode
+- **THEN** the Daemon settings UI SHALL display the input form, show attachment pickers for operator images, and provide a "切回AI模式" button.
+
+<!-- @trace
+source: add-multimedia-and-human-intervention
+updated: 2026-06-13
+code:
+  - src/frontend/index.js
+  - src/infrastructure/runtime/daemon_client.rs
+  - src/infrastructure/runtime/settings_ui.html
+  - src/api/dto/message_dto.rs
+  - src/frontend/index.html
+  - src/infrastructure/runtime/daemon_settings.rs
+  - src/infrastructure/runtime/mod.rs
+  - src/application/models/session.rs
+  - src/application/services/runtime_service.rs
+  - src/infrastructure/runtime/gemini_cli.rs
+  - src/application/ports/runtime_gateway.rs
+  - src/frontend/style.css
+  - daemon_config.json
+  - src/infrastructure/db/message_repository_impl.rs
+  - src/infrastructure/runtime/process_manager.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/message.rs
+  - Cargo.toml
+  - src/api/routes/sessions.rs
+  - src/application/services/session_service.rs
+  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
+-->

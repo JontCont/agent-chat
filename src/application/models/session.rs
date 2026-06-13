@@ -11,6 +11,7 @@ pub enum SessionStatus {
     Expired,
     Closed,
     Faulted,
+    Human,
 }
 
 impl SessionStatus {
@@ -23,6 +24,7 @@ impl SessionStatus {
             SessionStatus::Expired => "expired",
             SessionStatus::Closed => "closed",
             SessionStatus::Faulted => "faulted",
+            SessionStatus::Human => "human",
         }
     }
 
@@ -35,6 +37,7 @@ impl SessionStatus {
             "expired" => SessionStatus::Expired,
             "closed" => SessionStatus::Closed,
             "faulted" => SessionStatus::Faulted,
+            "human" => SessionStatus::Human,
             _ => SessionStatus::Faulted,
         }
     }

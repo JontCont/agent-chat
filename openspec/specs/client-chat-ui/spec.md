@@ -70,23 +70,38 @@ code:
 
 ---
 ### Requirement: Message Streaming and Input Locking
-The system SHALL allow users to enter prompt text. When the user sends a prompt, the system SHALL send a POST request to `/sessions/{session_id}/messages` containing the prompt. The system SHALL disable the input field and the Send button during streaming, and update the chat area in real-time with response deltas received via the WebSocket connection.
+The system SHALL allow users to enter prompt text and attach local images. When the user sends a prompt, the system SHALL encode any attached images in Base64 and send a POST request to `/sessions/{session_id}/messages` containing the prompt and the image attachments. The system SHALL disable input fields and the Send button during streaming, and update the chat area in real-time with response deltas.
 
-#### Scenario: Stream response deltas
-- **WHEN** the user submits a prompt
-- **THEN** the system sends the prompt to the backend, disables input elements, and appends incoming WebSocket message text to the chat area.
+#### Scenario: Stream response deltas with image attachment
+- **WHEN** the user attaches an image and submits a prompt
+- **THEN** the system SHALL preview the image, convert it to Base64, send a POST request with the prompt text and Base64 attachment, disable inputs, and update the chat area with stream deltas
 
 
 <!-- @trace
-source: add-frontend
-updated: 2026-06-12
+source: add-multimedia-and-human-intervention
+updated: 2026-06-13
 code:
   - src/frontend/index.js
-  - Cargo.toml
+  - src/infrastructure/runtime/daemon_client.rs
+  - src/infrastructure/runtime/settings_ui.html
+  - src/api/dto/message_dto.rs
   - src/frontend/index.html
-  - src/frontend/style.scss
-  - src/main.rs
+  - src/infrastructure/runtime/daemon_settings.rs
+  - src/infrastructure/runtime/mod.rs
+  - src/application/models/session.rs
+  - src/application/services/runtime_service.rs
+  - src/infrastructure/runtime/gemini_cli.rs
+  - src/application/ports/runtime_gateway.rs
   - src/frontend/style.css
+  - daemon_config.json
+  - src/infrastructure/db/message_repository_impl.rs
+  - src/infrastructure/runtime/process_manager.rs
+  - src/infrastructure/db/sqlite.rs
+  - src/application/models/message.rs
+  - Cargo.toml
+  - src/api/routes/sessions.rs
+  - src/application/services/session_service.rs
+  - template/Gemini_Generated_Image_p0s1zep0s1zep0s1.png
 -->
 
 ---

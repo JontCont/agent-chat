@@ -5,12 +5,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const promptInput = document.getElementById('prompt-input');
     const btnCancel = document.getElementById('btn-cancel');
     const btnSend = document.getElementById('btn-send');
+    const btnAttach = document.getElementById('btn-attach');
+    const fileInput = document.getElementById('file-input');
+    const attachmentPreviewContainer = document.getElementById('attachment-preview-container');
+    const attachmentPreview = document.getElementById('attachment-preview');
+    const btnRemoveAttachment = document.getElementById('btn-remove-attachment');
+    const btnHuman = document.getElementById('btn-human');
 
     let sessionId = null;
     let ws = null;
+    let sessionStatus = 'ready';
     let currentSSEEvent = null;
     let currentModelMessageContent = null;
     let currentModelMessageText = '';
+    let selectedAttachment = null;
 
     // Configure marked.js for markdown rendering
     if (typeof marked !== 'undefined') {
@@ -57,6 +65,50 @@ document.addEventListener('DOMContentLoaded', () => {
     // Cancel button event
     btnCancel.addEventListener('click', cancelMessage);
 
+    // Transfer to Human button event
+    if (btnHuman) {
+        btnHuman.addEventListener('click', transferToHuman);
+    }
+
+    // Attachment events
+    btnAttach.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.size > 5 * 1024 * 1024) {
+            alert("Image file size must be less than 5MB.");
+            fileInput.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const base64Data = event.target.result;
+            selectedAttachment = {
+                mime_type: file.type,
+                data: base64Data
+            };
+            attachmentPreview.src = base64Data;
+            attachmentPreviewContainer.style.display = 'inline-flex';
+        };
+        reader.readAsDataURL(file);
+    });
+
+    btnRemoveAttachment.addEventListener('click', () => {
+        clearAttachment();
+    });
+
+    function clearAttachment() {
+        selectedAttachment = null;
+        fileInput.value = '';
+        attachmentPreview.src = '';
+        attachmentPreviewContainer.style.display = 'none';
+    }
+
     // Initialize session
     async function initSession() {
         updateStatus('connecting', 'Initializing Session...');
@@ -73,7 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const data = await response.json();
             sessionId = data.id;
-            console.log('Session initialized:', sessionId);
+            sessionStatus = data.status || 'ready';
+            console.log('Session initialized:', sessionId, 'Status:', sessionStatus);
             
             appendSystemMessage('Session established. Connecting to server stream...');
             connectWebSocket(sessionId);
@@ -124,6 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const data = JSON.parse(messageStr);
                 if (data.type === 'session.ready') {
+                    sessionStatus = 'ready';
                     finalizeStream();
                 } else if (data.type === 'session.error') {
                     showErrorInChat(data.error || 'An unexpected execution error occurred.');
@@ -135,6 +189,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (data.event === 'error' || data.type === 'error') {
                     showErrorInChat(data.error || data.text || 'Error streaming response.');
                     finalizeStream();
+                } else if (data.type === 'session.status') {
+                    sessionStatus = data.status;
+                    if (data.status === 'human') {
+                        updateStatus('connected', 'Human Operator Support');
+                    } else if (data.status === 'ready') {
+                        updateStatus('connected', 'Connected');
+                    }
+                } else if (data.type === 'operator.message') {
+                    appendOperatorMessage(data.text, data.attachments);
                 }
             } catch (e) {
                 console.log('WebSocket received non-JSON plain text:', messageStr);
@@ -195,12 +258,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const content = promptInput.value.trim();
         if (!content || !sessionId) return;
 
+        const attachments = selectedAttachment ? [selectedAttachment] : null;
+
         // Display user message in chat
-        appendUserMessage(content);
+        appendUserMessage(content, attachments);
         
         // Clear input and lock UI
         promptInput.value = '';
         promptInput.style.height = 'auto';
+        clearAttachment();
+
+        if (sessionStatus === 'human') {
+            try {
+                const response = await fetch(`/sessions/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content, attachments })
+                });
+
+                if (response.status !== 202) {
+                    const errorText = await response.text();
+                    appendSystemMessage(`Error: ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Failed to send message:', error);
+                appendSystemMessage(`Network Error: ${error.message}`);
+            }
+            return;
+        }
+
         lockInputsForStreaming();
 
         // Create empty model response bubble
@@ -213,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ content })
+                body: JSON.stringify({ content, attachments })
             });
 
             if (response.status === 202) {
@@ -250,6 +338,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Transfer session to human
+    async function transferToHuman() {
+        if (!sessionId) return;
+        disableInputs();
+        try {
+            console.log('Sending transfer-to-human request for session:', sessionId);
+            const response = await fetch(`/sessions/${sessionId}/human`, {
+                method: 'POST'
+            });
+
+            if (response.ok) {
+                sessionStatus = 'human';
+                appendSystemMessage('已為您轉接人工客服。之後您的提問將由後台人工回覆。');
+                enableInputs();
+                updateStatus('connected', 'Human Operator Support');
+            } else {
+                console.error('Failed to transfer to human, status:', response.status);
+                enableInputs();
+            }
+        } catch (error) {
+            console.error('Error transferring to human:', error);
+            enableInputs();
+        }
+    }
+
     // Create a new model response bubble in chat
     function createModelMessageElement() {
         const messageDiv = document.createElement('div');
@@ -276,12 +389,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Append user message
-    function appendUserMessage(text) {
+    function appendUserMessage(text, attachments) {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message user-message';
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
+        
+        if (attachments && attachments.length > 0) {
+            attachments.forEach(att => {
+                if (att.mime_type.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    img.src = att.data;
+                    img.alt = 'Uploaded Image';
+                    img.style.maxWidth = '100%';
+                    img.style.borderRadius = '8px';
+                    img.style.marginBottom = '8px';
+                    img.style.display = 'block';
+                    contentDiv.appendChild(img);
+                }
+            });
+        }
         
         // Escape HTML for user input
         const p = document.createElement('p');
@@ -310,6 +438,38 @@ document.addEventListener('DOMContentLoaded', () => {
         scrollToBottom();
     }
 
+    // Append operator (model) message bubble
+    function appendOperatorMessage(text, attachments) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message model-message';
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content markdown-body';
+        
+        if (attachments && attachments.length > 0) {
+            attachments.forEach(att => {
+                if (att.mime_type.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    img.src = att.data;
+                    img.alt = 'Operator Image';
+                    img.style.maxWidth = '100%';
+                    img.style.borderRadius = '8px';
+                    img.style.marginBottom = '8px';
+                    img.style.display = 'block';
+                    contentDiv.appendChild(img);
+                }
+            });
+        }
+        
+        const textDiv = document.createElement('div');
+        textDiv.innerHTML = formatMarkdown(text);
+        contentDiv.appendChild(textDiv);
+        
+        messageDiv.appendChild(contentDiv);
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+    }
+
     // Update status indicator
     function updateStatus(state, text) {
         statusDot.className = `status-dot ${state}`;
@@ -321,6 +481,8 @@ document.addEventListener('DOMContentLoaded', () => {
         promptInput.disabled = false;
         btnSend.disabled = false;
         btnCancel.disabled = true;
+        if (btnAttach) btnAttach.disabled = false;
+        if (btnHuman) btnHuman.disabled = false;
         promptInput.focus();
     }
 
@@ -328,12 +490,16 @@ document.addEventListener('DOMContentLoaded', () => {
         promptInput.disabled = true;
         btnSend.disabled = true;
         btnCancel.disabled = true;
+        if (btnAttach) btnAttach.disabled = true;
+        if (btnHuman) btnHuman.disabled = true;
     }
 
     function lockInputsForStreaming() {
         promptInput.disabled = true;
         btnSend.disabled = true;
         btnCancel.disabled = false;
+        if (btnAttach) btnAttach.disabled = true;
+        if (btnHuman) btnHuman.disabled = true;
     }
 
     function scrollToBottom() {

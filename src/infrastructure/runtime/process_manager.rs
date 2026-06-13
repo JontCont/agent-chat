@@ -4,6 +4,9 @@ use tokio::process::Command;
 use tokio::io::AsyncReadExt;
 use futures_util::Stream;
 use tracing::{info, error, warn};
+use crate::application::models::message::Attachment;
+use std::sync::{OnceLock, Mutex};
+use std::collections::HashMap;
 
 pub fn get_pid_dir() -> PathBuf {
     #[cfg(windows)]
@@ -196,24 +199,165 @@ fn check_executable(cmd: &str) -> bool {
     false
 }
 
-pub fn spawn_run(session_id: String, prompt: String, active_cli: String) -> impl Stream<Item = Result<String, std::io::Error>> + Send {
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct DaemonMessage {
+    pub role: String,
+    pub content: String,
+    pub attachments: Option<Vec<Attachment>>,
+}
+
+pub struct ActiveSession {
+    pub manual_tx: Option<tokio::sync::mpsc::Sender<Result<String, std::io::Error>>>,
+    pub history: Vec<DaemonMessage>,
+    pub is_human: bool,
+}
+
+static ACTIVE_SESSIONS: OnceLock<Mutex<HashMap<String, ActiveSession>>> = OnceLock::new();
+
+pub fn get_sessions_registry() -> &'static Mutex<HashMap<String, ActiveSession>> {
+    ACTIVE_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct TempFileGuard {
+    paths: Vec<PathBuf>,
+}
+
+impl TempFileGuard {
+    fn new() -> Self {
+        Self { paths: Vec::new() }
+    }
+
+    fn add(&mut self, path: PathBuf) {
+        self.paths.push(path);
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        for path in &self.paths {
+            if path.exists() {
+                if let Err(e) = std::fs::remove_file(path) {
+                    warn!("Failed to clean up temp file {:?}: {:?}", path, e);
+                } else {
+                    info!("Successfully cleaned up temp file {:?}", path);
+                }
+            }
+        }
+    }
+}
+
+fn decode_base64(input: &str) -> Option<Vec<u8>> {
+    let base64_data = if let Some(idx) = input.find(";base64,") {
+        &input[idx + 8..]
+    } else {
+        input
+    };
+
+    let mut bytes = Vec::new();
+    let mut buffer = 0u32;
+    let mut bits_collected = 0;
+
+    for c in base64_data.chars() {
+        if c.is_whitespace() || c == '=' {
+            continue;
+        }
+        let val = match c {
+            'A'..='Z' => c as u8 - b'A',
+            'a'..='z' => c as u8 - b'a' + 26,
+            '0'..='9' => c as u8 - b'0' + 52,
+            '+' | '-' => 62,
+            '/' | '_' => 63,
+            _ => continue,
+        };
+        buffer = (buffer << 6) | val as u32;
+        bits_collected += 6;
+        if bits_collected >= 8 {
+            bits_collected -= 8;
+            bytes.push((buffer >> bits_collected) as u8);
+        }
+    }
+    Some(bytes)
+}
+
+pub fn spawn_run(
+    session_id: String,
+    prompt: String,
+    attachments: Option<Vec<Attachment>>,
+    active_cli: String,
+) -> impl Stream<Item = Result<String, std::io::Error>> + Send {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
     
+    let is_human_mode = active_cli == "human";
+
+    // Register active session in registry synchronously
+    {
+        let user_msg = DaemonMessage {
+            role: "user".to_string(),
+            content: prompt.clone(),
+            attachments: attachments.clone(),
+        };
+        let mut registry = get_sessions_registry().lock().unwrap();
+        let session = registry.entry(session_id.clone()).or_insert_with(|| ActiveSession {
+            manual_tx: None,
+            history: Vec::new(),
+            is_human: is_human_mode,
+        });
+        session.is_human = is_human_mode;
+        if !is_human_mode {
+            session.manual_tx = Some(tx.clone());
+        } else {
+            session.manual_tx = None;
+        }
+        session.history.push(user_msg);
+    }
+
+    if is_human_mode {
+        info!("Session {} is in human mode. Saved message to history, exiting spawn_run stream immediately.", session_id);
+        return tokio_stream::wrappers::ReceiverStream::new(rx);
+    }
+
     tokio::spawn(async move {
+        let mut temp_guard = TempFileGuard::new();
+        let mut temp_paths = Vec::new();
+
+
+        if let Some(atts) = attachments {
+            for att in atts {
+                if let Some(bytes) = decode_base64(&att.data) {
+                    let ext = match att.mime_type.as_str() {
+                        "image/png" => "png",
+                        "image/jpeg" | "image/jpg" => "jpg",
+                        "image/gif" => "gif",
+                        "image/webp" => "webp",
+                        _ => "bin",
+                    };
+                    let filename = format!("agent-attachment-{}.{}", uuid::Uuid::new_v4(), ext);
+                    let file_path = std::env::temp_dir().join(filename);
+                    if let Err(e) = std::fs::write(&file_path, bytes) {
+                        error!("Failed to write temp file {:?}: {:?}", file_path, e);
+                    } else {
+                        info!("Wrote temp file {:?}", file_path);
+                        temp_guard.add(file_path.clone());
+                        temp_paths.push(file_path);
+                    }
+                }
+            }
+        }
+
         let cli_cmd = match active_cli.as_str() {
             "openai" => std::env::var("OPENAI_CLI_PATH").unwrap_or_else(|_| "openai".to_string()),
             "copilot" => std::env::var("COPILOT_CLI_PATH").unwrap_or_else(|_| "copilot".to_string()),
             "claude" => std::env::var("CLAUDE_CLI_PATH").unwrap_or_else(|_| "claude".to_string()),
             _ => std::env::var("AGY_CLI_PATH").unwrap_or_else(|_| "agy".to_string()),
         };
-        info!("Spawning child process for session {}: {} --print '{}' (Active CLI: {})", session_id, cli_cmd, prompt, active_cli);
+        info!("Spawning child process for session {}: {} --print '{}' with {} attachments (Active CLI: {})", session_id, cli_cmd, prompt, temp_paths.len(), active_cli);
         
         // On Windows, agy writes directly to the console device (CONOUT$),
         // bypassing piped stdout entirely. We use `conhost.exe --headless`
         // to create a headless pseudo-console that captures this output.
         // On non-Windows, we spawn agy directly with piped stdout.
         let spawn_result = if check_executable(&cli_cmd) {
-            spawn_agy_command(&cli_cmd, &prompt)
+            spawn_agy_command(&cli_cmd, &prompt, &temp_paths)
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
@@ -270,6 +414,19 @@ pub fn spawn_run(session_id: String, prompt: String, active_cli: String) -> impl
                         }
                     }
                 }
+
+                // Append to registry history and clear sender
+                let mut registry = get_sessions_registry().lock().unwrap();
+                if let Some(session) = registry.get_mut(&session_id) {
+                    if !response.is_empty() {
+                        session.history.push(DaemonMessage {
+                            role: "model".to_string(),
+                            content: response.clone(),
+                            attachments: None,
+                        });
+                    }
+                    session.manual_tx = None;
+                }
             }
             Err(e) => {
                 error!("Failed to spawn agy executable: {}. Using mock stream generator instead.", e);
@@ -310,6 +467,17 @@ pub fn spawn_run(session_id: String, prompt: String, active_cli: String) -> impl
                     }
                 }
                 delete_pid(&session_id);
+
+                // Append to registry history and clear sender for fallback
+                let mut registry = get_sessions_registry().lock().unwrap();
+                if let Some(session) = registry.get_mut(&session_id) {
+                    session.history.push(DaemonMessage {
+                        role: "model".to_string(),
+                        content: mock_response.clone(),
+                        attachments: None,
+                    });
+                    session.manual_tx = None;
+                }
             }
         }
     });
@@ -326,30 +494,36 @@ pub fn spawn_run(session_id: String, prompt: String, active_cli: String) -> impl
 /// forwards that output to its own piped stdout.
 ///
 /// On non-Windows platforms, agy writes to stdout normally, so we spawn it directly.
-fn spawn_agy_command(agy_cmd: &str, prompt: &str) -> std::io::Result<tokio::process::Child> {
+fn spawn_agy_command(agy_cmd: &str, prompt: &str, temp_files: &[PathBuf]) -> std::io::Result<tokio::process::Child> {
     #[cfg(windows)]
     {
         info!("Using conhost --headless wrapper for agy on Windows");
         // Build the inner command string for conhost to execute.
         // conhost --headless -- <program> <args...>
-        Command::new("conhost.exe")
-            .arg("--headless")
+        let mut cmd = Command::new("conhost.exe");
+        cmd.arg("--headless")
             .arg("--")
             .arg(agy_cmd)
             .arg("--dangerously-skip-permissions")
             .arg("--print")
-            .arg(prompt)
-            .stdout(Stdio::piped())
+            .arg(prompt);
+        for path in temp_files {
+            cmd.arg(path);
+        }
+        cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped())
             // Do NOT redirect stdin to null — agy needs inherited console stdin
             .spawn()
     }
     #[cfg(not(windows))]
     {
-        Command::new(agy_cmd)
-            .arg("--print")
-            .arg(prompt)
-            .env("TERM", "dumb")
+        let mut cmd = Command::new(agy_cmd);
+        cmd.arg("--print")
+            .arg(prompt);
+        for path in temp_files {
+            cmd.arg(path);
+        }
+        cmd.env("TERM", "dumb")
             .env("CI", "true")
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -368,7 +542,7 @@ mod tests {
     async fn test_spawn_run_fallback_openai() {
         std::env::set_var("OPENAI_CLI_PATH", "nonexistent_openai_cli_path_xyz");
         // Since 'openai' executable doesn't exist, it should trigger fallback mock stream
-        let mut stream = spawn_run("session_openai".to_string(), "hello".to_string(), "openai".to_string());
+        let mut stream = spawn_run("session_openai".to_string(), "hello".to_string(), None, "openai".to_string());
         
         let mut lines = Vec::new();
         while let Some(res) = stream.next().await {
@@ -378,6 +552,45 @@ mod tests {
         let full_response = lines.join("\n");
         assert!(full_response.contains("openai"));
         assert!(full_response.contains("mock response"));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_run_with_attachments_cleanup() {
+        let attachment = Attachment {
+            mime_type: "image/png".to_string(),
+            data: "SGVsbG8=".to_string(),
+        };
+
+        let mut temp_guard = TempFileGuard::new();
+        let bytes = decode_base64(&attachment.data).unwrap();
+        assert_eq!(bytes, b"Hello");
+
+        let file_path = std::env::temp_dir().join("test-attachment-cleanup.png");
+        std::fs::write(&file_path, &bytes).unwrap();
+        assert!(file_path.exists());
+        temp_guard.add(file_path.clone());
+
+        drop(temp_guard);
+        assert!(!file_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_run_human_mode() {
+        let session_id = "session_human_test".to_string();
+        let mut stream = spawn_run(session_id.clone(), "hello".to_string(), None, "human".to_string());
+
+        let mut lines = Vec::new();
+        while let Some(res) = stream.next().await {
+            lines.push(res.unwrap());
+        }
+
+        assert_eq!(lines.len(), 0); // Exited immediately
+
+        let registry = get_sessions_registry().lock().unwrap();
+        let session = registry.get("session_human_test").unwrap();
+        assert!(session.is_human);
+        assert_eq!(session.history.len(), 1);
+        assert_eq!(session.history[0].content, "hello");
     }
 }
 

@@ -329,6 +329,18 @@ body {
     transform: translateY(-1px);
 }
 
+.btn-human {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.btn-human:hover:not(:disabled) {
+    background: rgba(245, 158, 11, 0.2);
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+    transform: translateY(-1px);
+}
+
 /* Animations */
 @keyframes fadeIn {
     from {
@@ -509,4 +521,90 @@ body {
 
 .markdown-body p:last-child {
     margin-bottom: 0;
+}
+
+/* Attachment picker & preview */
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.btn-attach {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #f5f7fa;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-attach:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #00d2ff;
+    color: #00d2ff;
+}
+
+.btn-attach:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-attach .icon {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+.attachment-preview-container {
+    position: relative;
+    align-self: flex-start;
+    margin: 8px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 6px;
+    display: inline-flex;
+    align-items: center;
+    max-width: 120px;
+    max-height: 120px;
+}
+
+#attachment-preview {
+    max-width: 100px;
+    max-height: 100px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+.btn-remove-attachment {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #ff3b30;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 14px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.btn-remove-attachment:hover {
+    background: #ff453a;
+    transform: scale(1.1);
 }

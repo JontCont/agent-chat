@@ -1,5 +1,5 @@
 use crate::application::models::session::SessionStatus;
-use crate::application::models::message::Message;
+use crate::application::models::message::{Message, Attachment};
 use crate::application::ports::session_repository::SessionRepository;
 use crate::application::ports::message_repository::MessageRepository;
 use crate::application::ports::runtime_gateway::RuntimeGateway;
@@ -32,20 +32,24 @@ impl RuntimeService {
         }
     }
 
-    pub async fn run_message(&self, session_id: &str, content: &str) -> Result<(), String> {
+    pub async fn run_message(&self, session_id: &str, content: &str, attachments: Option<Vec<Attachment>>) -> Result<(), String> {
         let session = match self.session_repo.get_by_id(session_id).await {
             Ok(Some(s)) => s,
             Ok(None) => return Err("Session not found".to_string()),
             Err(e) => return Err(format!("Database error: {:?}", e)),
         };
 
-        if session.status != SessionStatus::Ready && session.status != SessionStatus::Disconnected {
+        if session.status != SessionStatus::Ready && session.status != SessionStatus::Disconnected && session.status != SessionStatus::Human {
             return Err("Session is busy or in invalid state".to_string());
         }
 
-        // 1. Update session status to Busy in SQLite
-        if let Err(e) = self.session_repo.update_status(session_id, SessionStatus::Busy.as_str()).await {
-            return Err(format!("Failed to update session status: {:?}", e));
+        let is_human_session = session.status == SessionStatus::Human;
+
+        // 1. Update session status to Busy in SQLite (only if not in human support mode)
+        if !is_human_session {
+            if let Err(e) = self.session_repo.update_status(session_id, SessionStatus::Busy.as_str()).await {
+                return Err(format!("Failed to update session status: {:?}", e));
+            }
         }
 
         // 2. Save user prompt message to SQLite
@@ -56,8 +60,16 @@ impl RuntimeService {
             content: content.to_string(),
             created_at: Utc::now(),
             is_final: true,
+            attachments,
         };
         let _ = self.message_repo.save(&user_msg).await;
+
+        let is_human_session = session.status == SessionStatus::Human;
+        let active_cli = if is_human_session {
+            Some("human".to_string())
+        } else {
+            None
+        };
 
         // 3. Connect to Daemon and receive streaming events
         let gateway = self.runtime_gateway.clone();
@@ -68,7 +80,7 @@ impl RuntimeService {
 
         tokio::spawn(async move {
             info!("Starting prompt execution loop for session: {}", session_id_str);
-            let mut stream = gateway.send_message(&session_id_str, &user_msg.content);
+            let mut stream = gateway.send_message(&session_id_str, &user_msg.content, user_msg.attachments, active_cli);
             let mut full_response = String::new();
             let mut current_event = String::new();
 
@@ -110,26 +122,34 @@ impl RuntimeService {
                 }
             }
 
-            // Save final generated response message to SQLite
-            let ai_msg = Message {
-                id: Uuid::new_v4().to_string(),
-                session_id: session_id_str.clone(),
-                role: "model".to_string(),
-                content: full_response,
-                created_at: Utc::now(),
-                is_final: true,
-            };
-            
-            if let Err(e) = message_repo.save(&ai_msg).await {
-                error!("Failed to persist AI message response to SQLite: {:?}", e);
+            // Save final generated response message to SQLite (only if not human support mode)
+            if !is_human_session {
+                let ai_msg = Message {
+                    id: Uuid::new_v4().to_string(),
+                    session_id: session_id_str.clone(),
+                    role: "model".to_string(),
+                    content: full_response,
+                    created_at: Utc::now(),
+                    is_final: true,
+                    attachments: None,
+                };
+                
+                if let Err(e) = message_repo.save(&ai_msg).await {
+                    error!("Failed to persist AI message response to SQLite: {:?}", e);
+                }
             }
 
-            // Revert session state back to Ready and extend expiry
+            // Revert session state back to Ready/Human and extend expiry
             let now = Utc::now();
             let new_expires_at = now + chrono::Duration::try_minutes(30).unwrap_or_default();
             let _ = session_repo.update_expiry(&session_id_str, now, new_expires_at).await;
-            let _ = session_repo.update_status(&session_id_str, SessionStatus::Ready.as_str()).await;
-            info!("Session state reset to Ready for: {}", session_id_str);
+            let target_status = if is_human_session {
+                SessionStatus::Human
+            } else {
+                SessionStatus::Ready
+            };
+            let _ = session_repo.update_status(&session_id_str, target_status.as_str()).await;
+            info!("Session state reset to {:?} for: {}", target_status, session_id_str);
         });
 
         Ok(())
@@ -156,6 +176,27 @@ impl RuntimeService {
             return Err(format!("Failed to update SQLite session state to Ready: {:?}", e));
         }
 
+        Ok(())
+    }
+
+    pub async fn notify_human_mode(&self, session_id: &str) -> Result<(), String> {
+        if let Err(e) = self.runtime_gateway.set_human_mode(session_id).await {
+            return Err(format!("Failed to notify Daemon about human mode: {:?}", e));
+        }
+        Ok(())
+    }
+
+    pub async fn notify_ready_mode(&self, session_id: &str) -> Result<(), String> {
+        if let Err(e) = self.runtime_gateway.set_ready_mode(session_id).await {
+            return Err(format!("Failed to notify Daemon about ready mode: {:?}", e));
+        }
+        Ok(())
+    }
+
+    pub async fn save_operator_message(&self, message: &Message) -> Result<(), String> {
+        if let Err(e) = self.message_repo.save(message).await {
+            return Err(format!("Database error saving operator message: {:?}", e));
+        }
         Ok(())
     }
 }

@@ -43,4 +43,12 @@ impl SessionService {
     pub async fn get_session(&self, id: &str) -> Result<Option<Session>, sqlx::Error> {
         self.session_repo.get_by_id(id).await
     }
+
+    pub async fn transfer_to_human(&self, id: &str) -> Result<(), sqlx::Error> {
+        self.session_repo.update_status(id, SessionStatus::Human.as_str()).await
+    }
+
+    pub async fn restore_to_ready(&self, id: &str) -> Result<(), sqlx::Error> {
+        self.session_repo.update_status(id, SessionStatus::Ready.as_str()).await
+    }
 }

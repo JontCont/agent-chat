@@ -36,6 +36,9 @@ impl DaemonSettings {
 }
 
 #[cfg(test)]
+pub static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
@@ -48,6 +51,7 @@ mod tests {
 
     #[test]
     fn test_save_and_load_settings() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         let config_file = Path::new("daemon_config.json");
         // Backup if file exists
         let backup = if config_file.exists() {

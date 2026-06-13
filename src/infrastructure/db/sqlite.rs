@@ -51,11 +51,24 @@ pub async fn init_db(database_url: &str) -> Result<sqlx::SqlitePool, sqlx::Error
             content TEXT NOT NULL,
             created_at TEXT NOT NULL,
             is_final INTEGER NOT NULL DEFAULT 1,
+            attachments TEXT,
             FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );"
     )
     .execute(&pool)
     .await?;
+
+    // Alter messages table if attachments column is missing
+    let count: i32 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'attachments';"
+    )
+    .fetch_one(&pool)
+    .await?;
+    if count == 0 {
+        sqlx::query("ALTER TABLE messages ADD COLUMN attachments TEXT;")
+            .execute(&pool)
+            .await?;
+    }
 
     Ok(pool)
 }
